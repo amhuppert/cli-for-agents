@@ -1,0 +1,36 @@
+name: Distribution compatibility
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  distribution:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.2'
+      - name: Retain the exact Node floor executable
+        run: echo "DISTRIBUTION_NODE20=$(command -v node)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Retain the exact current Node executable
+        run: echo "DISTRIBUTION_NODE_CURRENT=$(command -v node)" >> "$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - name: Retain the exact Bun executable
+        run: echo "DISTRIBUTION_BUN=$(command -v bun)" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: scripts/distribution/ci.sh
+      - name: Preserve compatibility and advisory measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-evidence
+          path: .cc/temp/distribution/*.json
+          include-hidden-files: true
+          if-no-files-found: error

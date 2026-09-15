@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    "src/disclosure.ts",
+    "tests/disclosure.test.mjs",
+    "docs/implementation/page-disclosure.md",
+    "docs/implementation/page-disclosure-output.json"
+  ],
+  "checks": [
+    "32 focused disclosure tests passed; one exact file matched: vrun-825dc73c-ee32-442a-8e8d-2de2699e4fd1.",
+    "Full runtime suite passed: vrun-333bef2a-c9a4-4cbe-8841-519855644b0b.",
+    "Full typecheck passed: vrun-9f43a2bb-128a-441f-bebe-6e5ee764bf0a.",
+    "Full build passed: vrun-b7540a0f-5714-4447-a15b-6f17b3d4d1da.",
+    "Red behavior run vrun-300de245-412d-4350-9d90-1e3eac996302 reached page and failed all 32 tests against its throwing stub after fixture setup was corrected.",
+    "Known/unknown totals, exact counts, empty pages, count contradictions, missing/mutating/forged continuation refusal, immutable snapshots and original invocation/filter/cursor/view preservation are covered.",
+    "git diff --check passed. Package remains private with no runtime/optional dependencies or export changes. Source checks verify relative-only runtime imports, canonical count/token owners and no fetching, slicing, process IO or suppressions.",
+    "All launched validation checks settled. Public root page export reaches the implemented owner. Production handler exercise remains assigned to local-output-policy and remote-production-cli by the acceptance matrix."
+  ],
+  "summary": "Implemented the public already-paged disclosure helper and omission construction. Returned counts derive from immutable supplied JSON data; unknown totals stay unknown. Truncation requires an authentic read invocation whose identity, filters, cursor and view remain intact. Invalid counts, shapes and missing/mutating/forged continuations are rejected. Both page-disclosure and page-public-wiring criteria are satisfied; downstream pilots retain their explicitly assigned production read exercise."
+}

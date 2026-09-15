@@ -1,0 +1,16 @@
+{
+  "artifacts": ["src/internal/response.ts", "src/results.ts", "src/runtime/index.ts", "src/internal/invocations.ts", "tests/response.test.mjs", "docs/implementation/response-assembly.md", "docs/implementation/response-assembly-output.json", ".cc/graph-workflow-docs/response-assembly-evidence.md"],
+  "checks": [
+    "62 focused response tests passed: vrun-e8ca8234-3fae-4939-84f0-d1608f423008. Both context-review defects were reproduced by failing behavior assertions before repair; original TDD evidence remains documented.",
+    "Full typecheck passed: vrun-3aa0271e-ff35-47a4-b3ab-6b65004f40cf.",
+    "Full runtime suite passed: vrun-f3cd4265-9104-453f-90bd-9898cfc17366.",
+    "Full build passed: vrun-18b47c2a-11c5-4773-be83-2cc5517ace6d. All launched checks settled.",
+    "git diff --check passed; no process/console output, heavy builtin imports or diagnostic suppressions in changed runtime owners.",
+    "Verified sole arbitration seam, canonical instruction/kernel catalog/recovery construction, effect/recovery preservation and independent doctor/continuation. Package remains private with no runtime dependencies or export changes.",
+    "Actual text/JSON projections verify disclosed records, unknown totals, omission facts and next command. Custom text ordering, reserved-prefix rejection, immutable hostile-wire admission, UTF-8 limits and primary/secondary classifications pass.",
+    "AssembledResponse remains artifact-delivery input; runtime composition owns post-operation invocation with configured conflict sink. Full compiler checks retain typed renderer/level coupling and reject assembly as bounded RunResult.",
+    "Registered doctor/continuation aggregate-overflow regression retains doctor, domain error, guidance, prior diagnostics and applied/unknown recovery; omits continuation with secondary KERNEL_CONTRACT. Focused assembly checkpoint passed: vrun-5f53f66e-7403-4f60-a6cc-195f300c68ba.",
+    "Real POSIX-shell parsing of displayed doctor, continuation and hint commands preserves U+2028/U+2029 in executable, positional, flag and passthrough tokens, plus quotes, empty tokens and literal backslash-u spellings."
+  ],
+  "summary": "Implemented the sole response arbiter, canonical assembly, deterministic structural rendering, custom primary-renderer validation, coherent text/JSON projections and strict public envelope decoding. Required conflicts stop/report with competing provenance; bounded guidance and applied/unknown recovery survive secondary failures. Context-review repairs classify combined reference overflow without losing the registered doctor or operation facts, and preserve exact Unicode invocation tokens through text rendering. An over-budget continuation is omitted with a bounded secondary KERNEL_CONTRACT; valid continuations remain separate from doctor. Governing source-of-truth entry 1 decisions 6–11 and the runner-response contract fix renderer coupling, optional evidence, arbitration, protocol bounds and downstream composition/delivery ownership. Both ordered tasks are implemented; final byte budgeting, artifact writing and runtime invocation remain their assigned graph owners."
+}

@@ -1,0 +1,27 @@
+{
+  "summary": "Implemented public nodeHost and createTestHost with bounded cancellable input, canonical filesystem paths, no-clobber atomic writes with identical reuse, lazy hashing, detached snapshots/calls and deterministic sleeps. Reproduced and fixed stdin retry, late file-open errors, named-pipe blocking and validator advisory 1:general:1 concerning directory-only spellings. Default-host selection, containment policy and process I/O retain their downstream owners under implementation-contract decisions 12/14.",
+  "artifacts": [
+    "src/runtime/index.ts",
+    "src/testing/index.ts",
+    "src/internal/node-host.ts",
+    "src/internal/test-host.ts",
+    "src/internal/node-builtins.d.ts",
+    "src/internal/host.ts",
+    "tests/host.test.mjs",
+    "docs/implementation/node-host.md",
+    "docs/implementation/node-host-output.json",
+    ".cc/graph-workflow-docs/node-host-evidence.md"
+  ],
+  "checks": [
+    "All 23 host tests passed: vrun-db49e898-2da2-4e96-91f2-427f63443d9b. Four advisory regressions failed on missing refusals before the directory-only spelling repair.",
+    "Full tests passed: vrun-7326b23d-75d3-435c-967d-788d38939e2a.",
+    "Full typecheck passed: vrun-11a449f4-84cf-4ebf-aa15-f428cd0b3695.",
+    "Full build passed: vrun-9b68d766-1d1a-4811-bd4f-c26b53cba06c. All launched checks settled.",
+    "Node and test-host cases began with failing public stubs. Subsequent failing reproductions verified stdin retry, late file-open errors and named-pipe blocking before repair.",
+    "Real filesystem/pipe cases verify exact UTF-8 limits, clean cancellation, symlink ancestors/targets, dangling links, loops, identical reuse, unrelated concurrent collisions and staging cleanup.",
+    "Shared Node/test cases verify detached bytes, file/hash behavior, cancellation and listener cleanup. Fake-clock cases verify deterministic deadlines, stable ties, long waits and overflow refusal.",
+    "Advisory 1:general:1 addressed: directory-only paths reject existing regular files; missing directory results preserve a trailing separator and both atomic writers refuse them. Regression cases include symlink-target spellings and fixture rejection.",
+    "Loader instrumentation proves declaration imports acquire no Node builtins and filesystem operations do not load crypto. Public factory paths reach implemented capability owners.",
+    "Charter checks passed: private package, zero runtime dependencies, unchanged exports, no eager builtins/direct process output/suppressions, local-only changes and clean git diff --check. Both tasks remain complete; local evidence updated. Advisory-turn shared-doc registration was unavailable without workflow identity."
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "initScriptPath": "scripts/worktree-init.sh",
+  "validation": {
+    "commands": {
+      "typecheck": {
+        "command": {
+          "full": "scripts/validate/typecheck.sh"
+        },
+        "cost": 1,
+        "timeoutMs": 120000,
+        "description": "Check source, examples, and compile-time contract assertions.",
+        "pathArgs": "forbid"
+      },
+      "build": {
+        "command": {
+          "full": "scripts/validate/build.sh"
+        },
+        "cost": 1,
+        "timeoutMs": 120000,
+        "description": "Emit library JavaScript and TypeScript declarations into dist.",
+        "pathArgs": "forbid"
+      },
+      "test": {
+        "command": {
+          "full": "scripts/validate/test.sh",
+          "changed": "scripts/validate/test.sh"
+        },
+        "cost": 2,
+        "timeoutMs": 900000,
+        "description": "Compile the library and run exact Node test files with one worker and 1024 MiB heaps.",
+        "pathArgs": "paths"
+      }
+    },
+    "preMerge": [
+      "typecheck",
+      "build"
+    ]
+  }
+}

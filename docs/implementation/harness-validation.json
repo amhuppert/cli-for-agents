@@ -1,0 +1,71 @@
+{
+  "sourceRevision": "71e833195467e4b06b76a2d4a39034e969a63caa",
+  "requestedPaths": [
+    "tests/harness.test.mjs"
+  ],
+  "invocation": [
+    "cctl",
+    "validate",
+    "run",
+    "test",
+    "--queue-if-busy",
+    "--json",
+    "--",
+    "tests/harness.test.mjs"
+  ],
+  "canonicalWrapper": "scripts/validate/test.sh",
+  "scopeEvidence": "The sole explicit requested path is tests/harness.test.mjs; retained cctl result reports filesMatched=1, changed to changed. The canonical wrapper validates exact files without widening. Success stdout is intentionally silent.",
+  "red": {
+    "runId": "vrun-535dbb70-6047-491a-90d3-19ef202b9e27",
+    "exitCode": 1,
+    "requestedPaths": [
+      "tests/harness.test.mjs"
+    ],
+    "passedTests": 1,
+    "failedTests": 2,
+    "failure": "Both cleanup assertions failed with Missing expected rejection: temporary directory must be removed when its callback settles. All four built ESM package imports passed; no import/setup failure."
+  },
+  "result": {
+    "ok": true,
+    "code": "validation_passed",
+    "commandName": "test",
+    "kind": "passed",
+    "runId": "vrun-b5f4f140-391d-4419-9bed-705a2918c925",
+    "exitCode": 0,
+    "output": "",
+    "filesMatched": 1,
+    "requestedScope": "changed",
+    "effectiveScope": "changed",
+    "queuePositions": []
+  },
+  "settledStatus": {
+    "ok": true,
+    "runId": "vrun-b5f4f140-391d-4419-9bed-705a2918c925",
+    "status": "passed",
+    "position": null,
+    "result": {
+      "kind": "passed",
+      "runId": "vrun-b5f4f140-391d-4419-9bed-705a2918c925",
+      "exitCode": 0,
+      "output": "",
+      "filesMatched": 1
+    },
+    "requestedScope": "changed",
+    "effectiveScope": "changed"
+  },
+  "behaviors": [
+    "All four public package specifiers resolve to built dist ESM and import representative function values without invoking or freezing stubs.",
+    "Successful callbacks retain their return value; rejected callbacks retain the same error object.",
+    "Real temporary JSON files are readable during the callback and their directory is absent after success or rejection. A test finalizer also cleans up during failing reproductions."
+  ],
+  "resources": {
+    "testWorkers": 1,
+    "heapMiB": 1024,
+    "owner": "Unchanged canonical scripts/validate/test.sh and test-launcher.mjs"
+  },
+  "invariants": [
+    "No runtime dependency, package, source, compiler fixture or wrapper changes.",
+    "Package remains private. Test builtins are isolated to the test harness.",
+    "No process output, stub-preservation assertions or compiler suppressions added."
+  ]
+}

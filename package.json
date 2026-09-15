@@ -1,0 +1,39 @@
+{
+  "name": "cli-for-agents",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Draft contracts for command-line tools that AI agents call.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./guidance": {
+      "types": "./dist/guidance/index.d.ts",
+      "import": "./dist/guidance/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "./scripts/validate/typecheck.sh",
+    "build": "./scripts/validate/build.sh"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}

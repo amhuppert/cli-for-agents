@@ -1,0 +1,1007 @@
+{
+  "src/commands.ts": {
+    "imports": [
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/runner-modules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/disclosure.ts": {
+    "imports": [
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/binary.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/guidance/index.ts": {
+    "imports": [
+      {
+        "path": "src/internal/guidance-rules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/index.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/commands.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/disclosure.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/input.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/artifact-retention.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/artifacts.ts": {
+    "imports": [
+      {
+        "path": "src/internal/test-observation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/response.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/binary.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/artifact-retention.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "node:path",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/internal/binary.ts": {
+    "imports": [
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/artifact-retention.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/brand.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/declarations.ts": {
+    "imports": [
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/execution-reports.ts": {
+    "imports": [
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/guidance/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/binary.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/runner-modules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/execution.ts": {
+    "imports": [
+      {
+        "path": "src/internal/test-observation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/artifacts.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/runner-modules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/execution-reports.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/preparations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/local-input.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/exit-codes.ts": {
+    "imports": [
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/guidance-rules.ts": {
+    "imports": [
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/help.ts": {
+    "imports": [
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/exit-codes.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/host.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "node:crypto",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/internal/input-model.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/invocations.ts": {
+    "imports": [
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/local-input.ts": {
+    "imports": [
+      {
+        "path": "src/internal/test-observation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/runner-modules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/node-host.ts": {
+    "imports": [
+      {
+        "path": "src/internal/host.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "node:fs/promises",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:fs",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:path",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:process",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/internal/parser.ts": {
+    "imports": [
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/preparations.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/process.ts": {
+    "imports": [
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/host.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "node:process",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:module",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": [
+      55,
+      56
+    ]
+  },
+  "src/internal/reference-host.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/host.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/node-host.ts",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:fs/promises",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:path",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/internal/references.ts": {
+    "imports": [
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/help.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/host.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/reference-host.ts",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "node:path",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/internal/registry.ts": {
+    "imports": [
+      {
+        "path": "src/internal/parser.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/declarations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/input-model.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/response.ts": {
+    "imports": [
+      {
+        "path": "src/internal/execution.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/guidance/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/runner-modules.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/runtime.ts": {
+    "imports": [
+      {
+        "path": "src/internal/test-observation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/guidance/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/execution.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/guidance-rules.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/help.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/response.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/artifacts.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/stub.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/test-host-capture.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/test-host.ts": {
+    "imports": [
+      {
+        "path": "src/internal/host.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/internal/test-observation.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/internal/validation.ts": {
+    "imports": [],
+    "output": []
+  },
+  "src/results.ts": {
+    "imports": [
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/runtime/index.ts": {
+    "imports": [
+      {
+        "path": "src/internal/help.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/references.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/runtime.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/node-host.ts",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "src/internal/process.ts",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  },
+  "src/testing/contracts.ts": {
+    "imports": [
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/artifacts.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/testing/index.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/testing/fixtures.ts": {
+    "imports": [
+      {
+        "path": "src/commands.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/results.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/values.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/disclosure.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/guidance/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/testing/index.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/testing/index.ts": {
+    "imports": [
+      {
+        "path": "src/testing/contracts.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/testing/fixtures.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/testing/fixtures.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/testing/contracts.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/test-host-capture.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/test-host.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/registry.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/invocations.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/internal/test-observation.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "src/values.ts": {
+    "imports": [
+      {
+        "path": "src/internal/validation.ts",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "tests/fixtures/distribution/consumer.mjs": {
+    "imports": [
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "tests/fixtures/distribution/registry.mjs",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "tests/fixtures/distribution/contracts.mjs": {
+    "imports": [
+      {
+        "path": "src/testing/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "tests/fixtures/distribution/registry.mjs",
+        "kind": "static",
+        "eager": true
+      }
+    ],
+    "output": []
+  },
+  "tests/fixtures/distribution/handler.mjs": {
+    "imports": [],
+    "output": []
+  },
+  "tests/fixtures/distribution/registry.mjs": {
+    "imports": [
+      {
+        "path": "src/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "src/runtime/index.ts",
+        "kind": "static",
+        "eager": true
+      },
+      {
+        "path": "tests/fixtures/distribution/handler.mjs",
+        "kind": "dynamic",
+        "eager": false
+      },
+      {
+        "path": "tests/fixtures/distribution/contracts.mjs",
+        "kind": "dynamic",
+        "eager": false
+      }
+    ],
+    "output": []
+  }
+}

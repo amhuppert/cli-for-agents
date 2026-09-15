@@ -1,0 +1,26 @@
+{
+  "artifacts": [
+    "src/testing/index.ts",
+    "src/testing/contracts.ts",
+    "src/testing/fixtures.ts",
+    "src/internal/test-observation.ts",
+    "src/internal/test-host-capture.ts",
+    "tests/testkit.test.mjs",
+    "tests/fixtures/testkit-invalid.mjs",
+    "docs/implementation/disclosure-exceptions.json",
+    "docs/implementation/consumer-testkit.md",
+    ".cc/graph-workflow-docs/consumer-testkit-evidence.md"
+  ],
+  "checks": [
+    "Final focused 41 tests passed: vrun-feb09e98-b38e-4a81-91dd-bf2e3bee24c3.",
+    "Final full typecheck, including isolated compiler controls, passed: vrun-f5b8b5df-8087-4391-8ea0-002ab5709c38.",
+    "Final full runtime suite passed: vrun-9231cfdc-2f19-4c87-843a-147d3490658d.",
+    "Final full build passed: vrun-b7fdd474-5755-4b3d-b60f-ae12ab259c99.",
+    "All three reported partially quoted assignments and two siblings failed with missing expected rejection before repair; all now reject. Five safely quoted controls pass.",
+    "Seven public-runtime scenarios and seven deliberately violating fixtures retain their intended outcomes; setup failures cannot masquerade as contract rejections.",
+    "Disclosure inventory remains typed, stale-checked and empty. Every observed text/JSON output retains the configured byte bound.",
+    "Charter audit passed: private package, zero runtime dependencies, four exports, no eager builtins/process output, canonical derivation and production runtime/host/evidence call paths.",
+    "git diff --check passed. All validation runs launched by this context settled."
+  ],
+  "summary": "Implemented public runtime-backed test helpers, typed evidence, seven runner-neutral inherited cases and bounded disclosure-exception checks. Repaired context validation feedback by preserving assignment-prefix quoting independently of later value quotes. All three reported forms and two siblings now reject; safely quoted name/equals/full-word controls pass. Governing source-of-truth entry 1 decisions 9\u201315 preserves canonical parsing, protocol and delivery. Later executable invocation remains with distribution guards and local/remote pilots. No consumer repository writes, publication or git lifecycle operations occurred."
+}

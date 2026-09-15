@@ -1,0 +1,197 @@
+{
+  "sourceRevision": "18145f4318e192d8692bca5d01c40252e8948c6f",
+  "baselineRevision": "71e833195467e4b06b76a2d4a39034e969a63caa",
+  "recordedAt": "2026-09-15T16:27:14.839Z",
+  "validations": {
+    "typecheck": {
+      "ok": true,
+      "runId": "vrun-f35f1925-41b9-438c-90fb-a3aad5509096",
+      "status": "passed",
+      "position": null,
+      "result": {
+        "kind": "passed",
+        "runId": "vrun-f35f1925-41b9-438c-90fb-a3aad5509096",
+        "exitCode": 0,
+        "output": ""
+      },
+      "requestedScope": "full",
+      "effectiveScope": "full"
+    },
+    "build": {
+      "ok": true,
+      "runId": "vrun-5dc46837-0ae1-40c0-94a5-bbce78add3b6",
+      "status": "passed",
+      "position": null,
+      "result": {
+        "kind": "passed",
+        "runId": "vrun-5dc46837-0ae1-40c0-94a5-bbce78add3b6",
+        "exitCode": 0,
+        "output": ""
+      },
+      "requestedScope": "full",
+      "effectiveScope": "full"
+    },
+    "test": {
+      "ok": true,
+      "runId": "vrun-562258d8-53e8-4da2-ad76-835d89ed4ee6",
+      "status": "passed",
+      "position": null,
+      "result": {
+        "kind": "passed",
+        "runId": "vrun-562258d8-53e8-4da2-ad76-835d89ed4ee6",
+        "exitCode": 0,
+        "output": ""
+      },
+      "requestedScope": "full",
+      "effectiveScope": "full"
+    }
+  },
+  "publicExports": {
+    "cli-for-agents": {
+      "binaryArtifact": "function",
+      "bytes": "function",
+      "commandsFor": "function",
+      "count": "function",
+      "defineErrors": "function",
+      "defineFlow": "function",
+      "defineGroup": "function",
+      "id": "function",
+      "invocation": "function",
+      "kernelErrors": "object",
+      "milliseconds": "function",
+      "mutation": "function",
+      "page": "function",
+      "payloadRead": "function",
+      "protocolLimits": "object",
+      "recoveryFacts": "function",
+      "runner": "function",
+      "validationInvocation": "function",
+      "writeRunner": "function"
+    },
+    "cli-for-agents/runtime": {
+      "commandReference": "function",
+      "createCli": "function",
+      "decodeEnvelope": "function",
+      "helpNode": "function",
+      "main": "function",
+      "nodeHost": "function",
+      "renderInvocation": "function",
+      "runCli": "function",
+      "validateReferences": "function",
+      "writeCommandReference": "function"
+    },
+    "cli-for-agents/guidance": {
+      "decodeEvaluatedGuidance": "function",
+      "defineReminderRule": "function",
+      "defineSteering": "function",
+      "evaluateGuidance": "function",
+      "hint": "function",
+      "instruction": "function"
+    },
+    "cli-for-agents/testing": {
+      "contractTests": "function",
+      "createContractFixtures": "function",
+      "createTestHost": "function",
+      "expectBounded": "function",
+      "expectDisclosureParity": "function",
+      "expectLazy": "function",
+      "runForTest": "function"
+    }
+  },
+  "functionCount": 40,
+  "namedTestFiles": [
+    "tests/delivery.test.mjs",
+    "tests/disclosure.test.mjs",
+    "tests/distribution.test.mjs",
+    "tests/execution.test.mjs",
+    "tests/guidance.test.mjs",
+    "tests/harness.test.mjs",
+    "tests/help.test.mjs",
+    "tests/host.test.mjs",
+    "tests/pilots/local.test.mjs",
+    "tests/pilots/remote.test.mjs",
+    "tests/process.test.mjs",
+    "tests/registry.test.mjs",
+    "tests/response.test.mjs",
+    "tests/results.test.mjs",
+    "tests/runtime.test.mjs",
+    "tests/testkit.test.mjs",
+    "tests/values.test.mjs"
+  ],
+  "distribution": {
+    "bytes": 107929,
+    "ceiling": 107929,
+    "eagerEntries": 68,
+    "offlineTraces": [
+      {
+        "argv": [
+          "--help"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "inspect",
+          "--help"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "--version"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "exit-codes"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "--!distribution-invalid"
+        ],
+        "exitCode": 2
+      }
+    ],
+    "compatibilityArtifact": "docs/implementation/final-compatibility.json"
+  },
+  "liveProcessEvidence": {
+    "process": "tests/process.test.mjs: real slow readers, complete UTF-8 output, callback/drain ordering, EPIPE/EIO, cancellation and no replay; includes deliberately truncating negative control",
+    "local": "tests/pilots/local.test.mjs: bundled fresh processes, durable store/twin purity, all seven consumer cases, binary bytes/hash and output failures",
+    "remote": "tests/pilots/remote.test.mjs: bundled children plus loopback HTTP, all seven consumer cases, real disconnect/signals, artifact collision after one commit, emitted continuation execution"
+  },
+  "attribution": [
+    "Initial typecheck failed before compiler execution because TypeScript was absent; existing scripts/worktree-init.sh installed locked development dependencies. Initial text-mode refusal did not display a run ID.",
+    "All three registered full checks subsequently passed; no source failure or runtime remediation discovered in the finite matrix.",
+    "Distribution emitted-package guard was introduced by this workflow; baseline scaffold compiler output is not evidence of installed-package execution."
+  ],
+  "invariants": {
+    "local-scope": "Only this worktree edited; package private true; no publication or git lifecycle actions",
+    "dependency-free-kernel": "No runtime dependencies; full distribution AST/loader tests pass",
+    "single-declaration-derivation": "inputModel -> parser/help/invocations; registry/help/runtime and both pilot tests pass",
+    "compiler-controls-intact": "Six isolated unsuppressed positive programs precede full negatives; installed strict NodeNext declarations pass",
+    "protocol-preservation": "response/delivery/runtime/process and pilot applied/unknown/domain-preservation assertions pass",
+    "single-arbiter": "rg finds sole definition in response.ts and sole call in runtime.ts; inherited cases observe exactly one arbitration",
+    "local-errors-first": "resolveLocalInput precedes provider call; remote invalid JSON/schema tests observe zero requests",
+    "no-output-bypass": "rg process stdout/stderr matches only internal/process.ts; distribution and pilot AST guards pass"
+  },
+  "pendingRuntimeGaps": [],
+  "remediation": {
+    "status": "No runtime remediation required",
+    "scope": "Only delivered acceptance-matrix families and workflow-attributed regressions",
+    "resolvedEvidenceDrift": [
+      "Added delivered createContractFixtures/expectDisclosureParity exports and testkit types to API inventory",
+      "Replaced planned local/remote pilot route spellings with executable routes"
+    ],
+    "remainingDocumentation": "Completed by delivery-documentation: README, HANDOFF, public contract, add-a-command guide and final report.",
+    "validationReuse": "No runtime, fixture, build or compiler changes after the passing full checks; no affected check requires rerun."
+  },
+  "documentationChecks": {
+    "localMarkdownLinks": "All links in seven edited/new Markdown documents resolve",
+    "diffCheck": "git diff --check passed",
+    "runtimeChanges": false,
+    "pendingValidations": 0
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "artifacts": [
+    "src/internal/execution.ts",
+    "src/internal/runner-modules.ts",
+    "src/internal/local-input.ts",
+    "src/internal/execution-reports.ts",
+    "src/internal/preparations.ts",
+    "src/commands.ts",
+    "tests/execution.test.mjs",
+    "docs/implementation/execution-lifecycle.md",
+    "docs/implementation/execution-lifecycle-output.json",
+    ".cc/graph-workflow-docs/execution-lifecycle-evidence.md"
+  ],
+  "checks": [
+    "All 87 focused execution tests passed: vrun-219cd350-fd14-4d4b-a9fb-9941289916b1.",
+    "Full runtime suite passed: vrun-2ce1929a-0226-4c3c-8461-eddae984e8d6.",
+    "Full typecheck passed: vrun-363e5f02-3e55-483b-9e98-df2ef927105b.",
+    "Full build passed: vrun-369f3a01-1202-4761-a9c9-2d972aeebb18. All launched checks settled.",
+    "Twenty finalizer cases added; nineteen failed behavior assertions before repair. Coverage includes prototype/non-enumerable release and missing/inherited/accessor/non-enumerable app metadata.",
+    "Production execute tests verify receiver identity, exactly-once release after success/refusal/cancellation and hook settlement, awaited cleanup rejection, and refusal without invoking getters.",
+    "Existing input-before-context, keyed/none providers, runner transitions, catalog membership, preparation provenance and effect/recovery tests remain green.",
+    "Source audits verify release retention before metadata capture/app checks and finalization after the hook; canonical constructors, unchanged privacy/dependencies/exports, no eager imports/process output, and clean git diff --check."
+  ],
+  "summary": "Addressed the context-and-runners validator defect under source-of-truth entry 1, implementation-contract decision 6. Execution captures safely obtainable prototype and non-enumerable finalizers before metadata rejection, preserves the acquisition object as receiver, and releases once after valid hook settlement or on malformed app refusal. Added failing reproductions for all reported sibling cases and retained existing lifecycle behavior; all 87 focused tests and full tests/typecheck/build pass. Runtime wiring and guidance/policy implementation remain assigned to runtime-composition. Advisory 1:general:1 is documented explicitly: binaryArtifact remains a scaffold stub, so successful binary-result execution is an unresolved artifact-delivery dependency, outside the lifecycle behavior verified here."
+}

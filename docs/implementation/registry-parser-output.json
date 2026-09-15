@@ -1,0 +1,27 @@
+{
+  "artifacts": [
+    "src/commands.ts",
+    "src/runtime/index.ts",
+    "src/internal/registry.ts",
+    "src/internal/declarations.ts",
+    "src/internal/input-model.ts",
+    "src/internal/parser.ts",
+    "src/internal/invocations.ts",
+    "tests/registry.test.mjs",
+    "docs/implementation/registry-parser.md",
+    "docs/implementation/registry-parser-output.json"
+  ],
+  "checks": [
+    "100 focused tests passed: vrun-d3d621f2-08bb-40a6-ab8d-e7f0cf8686b1.",
+    "Full runtime suite passed: vrun-f168b62c-6d7e-428a-9151-cb3fad694af0.",
+    "Full typecheck passed: vrun-666cab62-19bf-4957-a63d-4494f5c4465e.",
+    "Full build passed: vrun-594b8c43-044f-4b95-bcf2-027d6b5b6172.",
+    "Review regressions failed before repair: doctor default/omission and constructor cases, collapsed multiword routes, detached default shifting and passthrough argument-to-flag reinterpretation.",
+    "Read/write/validation-twin tests verify positional assignments, same-kind scalar/variadic gap refusal, default preservation and own-property handling of constructor-named arguments.",
+    "Public createCli reparses final doctor argv against the completed graph. Routing consumes one child segment per token, including offline help/version paths.",
+    "Detached argument boundaries are checked before parsing. Rebinding preserves supplied slots and verifies identical resolved inputs after rebuilding, while retaining membership, secret and shell-safety checks.",
+    "git diff --check passed. All edits remain local; package stays private with no runtime dependencies or export changes. Source checks found no eager builtins, process IO, suppressions or sibling kernel constructors.",
+    "All launched checks settled. All five context acceptance criteria were rechecked against source call paths; execution/runtime/help-reference handoffs retain their documented downstream owners."
+  ],
+  "summary": "Implemented executable registry construction, declaration-derived scalar/compound parsing and safe invocation rendering. Addressed all context-review findings: final doctor tokens must parse to their registered target; omitted positionals cannot shift later values or expose inherited constructor properties; detached passthrough arguments cannot become flags or delimiters; rebinding preserves assignments and verifies resolved-input equivalence; routing refuses multiple path segments in one argv token. Read/write/validation-twin regressions and all original parser, stdin, laziness, membership and shell-safety checks pass. Public createCli performs canonical synchronous validation without acquiring state. Producer/consumer seams and final evidence are documented."
+}

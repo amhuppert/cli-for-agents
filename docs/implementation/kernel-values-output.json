@@ -1,0 +1,23 @@
+{
+  "summary": "Implemented checked units and IDs, immutable catalogs with declared class/default rationale, bounded recovery/guidance constructors and private JSON/protocol validation. Repaired the context-review proxy bypass: serialization materializes checked descriptors, and catalogs, errors, recovery and hints validate/size the exact captured data they retain. Virtual hooks cannot replace checked facts. Public exports reach implemented owners; downstream response/delivery ownership remains unchanged.",
+  "artifacts": [
+    "src/values.ts",
+    "src/results.ts",
+    "src/internal/validation.ts",
+    "src/guidance/index.ts",
+    "tests/values.test.mjs",
+    "tests/results.test.mjs",
+    "docs/implementation/kernel-values.md",
+    "docs/implementation/kernel-values-output.json",
+    ".cc/graph-workflow-docs/kernel-values-evidence.md"
+  ],
+  "checks": [
+    "Values TDD: 8 tests failed against stubs, then exact-file run vrun-d94d62e1-a303-47b3-9a04-60d5e9f4546b passed. Existing compiler controls preserve distinct ID/unit brands.",
+    "Results: all 25 tests passed in exact-file run vrun-caed0cd4-5e16-481b-b560-cfa1b1107ee2. Proxy regressions failed on retained class/data/size assertions before repair; existing reproduction coverage remains green.",
+    "Full test passed: vrun-4ea802fe-8ef5-4cf5-90f0-797fdde59bd4; all 36 tests across the harness, values and results.",
+    "Full typecheck passed: vrun-c95138e8-f620-4b7f-9434-a079e87c8fd8. Full build passed: vrun-70f838a1-6ad9-45a1-80ee-40da7fba6387. All launched checks settled.",
+    "Snapshot regressions cover root/nested virtual hooks, stateful size substitutions, changing descriptor traps and misleading property reads across catalogs, errors, recovery and hints. Virtual hooks execute zero times; invalid captured facts are rejected.",
+    "UTF-8 thresholds cover quotes, escapes, Unicode and combined mandatory fields. Hostile JavaScript tests reject unsupported JSON, malformed catalogs/references and reserved codes; immutable snapshots retain checked facts.",
+    "git diff --check passed. Package/private exports unchanged; no runtime dependencies, eager builtin imports, process output, new diagnostic suppressions or unchecked double-casts in changed runtime code. All repository changes remain in this worktree."
+  ]
+}

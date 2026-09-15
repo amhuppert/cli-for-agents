@@ -1,0 +1,122 @@
+import type { RegistryNode } from "./registry.js";
+import { checkCaller, checkName, scalar } from "./input-model.js";
+import type { CheckedInput, FlagEntry } from "./input-model.js";
+
+export type TokenResolution =
+  | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string; readonly json: boolean }
+  | { readonly kind: "leaf"; readonly node: RegistryNode; readonly input: CheckedInput; readonly json: boolean };
+
+function tokenValue(definition: FlagEntry["definition"]["value"], token: string | boolean): string | number | boolean {
+  if (definition.kind === "integer") {
+    if (typeof token !== "string" || !/^[+-]?[0-9]+$/.test(token)) throw new TypeError("Expected an integer token.");
+    return scalar(definition, Number(token));
+  }
+  if (definition.kind === "boolean") {
+    if (token === true || token === "true") return true;
+    if (token === false || token === "false") return false;
+    throw new TypeError("Expected a boolean token.");
+  }
+  return scalar(definition, token);
+}
+
+/** Scan once using the registry-wide name/kind inventory; then check the leaf.
+ * Retain format before reporting any refusal. Keep scanning after lexical errors
+ * so option ordering cannot change error representation; never scan past --. */
+export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv: readonly string[], retainFormat: (json: boolean) => void = () => {}): TokenResolution {
+  if (!Array.isArray(argv) || argv.some(token => typeof token !== "string" || token.includes("\0"))) throw new TypeError("Expected argv string tokens.");
+  const inventory: Record<string, FlagEntry> = Object.create(null);
+  for (const node of Object.values(nodes)) if (node.model) Object.assign(inventory, node.model.flags);
+  let node = nodes[""]!; let options = true;
+  let namedOffline: "version" | "exit-codes" | undefined;
+  const positionals: string[] = [];
+  const rawFlags: Record<string, (string | boolean)[]> = Object.create(null);
+  let passthrough: readonly string[] | undefined;
+  let scanError: TypeError | undefined;
+  const rememberError = (error: unknown): void => {
+    if (!(error instanceof TypeError)) throw error;
+    scanError ??= error;
+  };
+  for (let index = 0; index < argv.length; index++) {
+    try {
+      const token = argv[index]!;
+      if (options && token === "--") {
+        if (node.model?.spec.passthrough) { passthrough = argv.slice(index + 1); break; }
+        options = false; continue;
+      }
+      if (options && token.startsWith("--")) {
+        const equals = token.indexOf("=");
+        const name = token.slice(2, equals < 0 ? undefined : equals);
+        const entry = inventory[name];
+        if (!entry) throw new TypeError("Unknown flag.");
+        const values = rawFlags[name] ??= [];
+        if (equals >= 0) values.push(token.slice(equals + 1));
+        else if (entry.help.kind === "boolean") values.push(true);
+        else {
+          const next = argv[index + 1];
+          if (next === undefined || next.startsWith("--") || next.startsWith("-") && next !== "-" && !/^-[0-9]+$/.test(next)) throw new TypeError("Missing flag value; use equals for a leading dash.");
+          index++;
+          values.push(next);
+        }
+        continue;
+      }
+      if (options && token.startsWith("-") && token !== "-" && !/^-[0-9]+$/.test(token)) throw new TypeError("Unknown option token.");
+      if (namedOffline) throw new TypeError("Unexpected token after offline route.");
+      if (node.kind === "command" || node.kind === "validation") positionals.push(token);
+      else if (!node.path && (token === "version" || token === "exit-codes")) namedOffline = token;
+      else {
+        checkName(token);
+        const path = node.path ? `${node.path} ${token}` : token;
+        const child = nodes[path];
+        if (!child) {
+          const children = Object.values(nodes).filter(candidate => candidate.path && candidate.path.split(" ").slice(0, -1).join(" ") === node.path).map(candidate => candidate.path).sort();
+          throw new TypeError(`Unknown command path. Use ${[nodes[""]!.summary, node.path, "--help"].filter(Boolean).join(" ")}. Commands: ${children.join(", ")}.`);
+        }
+        node = child;
+      }
+    } catch (error) { rememberError(error); }
+  }
+  const bool = (name: string): boolean => Object.hasOwn(rawFlags, name) ? tokenValue({ kind: "boolean" }, rawFlags[name]![0]!) === true : false;
+  let json = false;
+  try { json = bool("json"); } catch (error) { rememberError(error); }
+  retainFormat(json);
+  if (scanError) throw scanError;
+  for (const name of Object.keys(rawFlags)) {
+    const allowed = node.model ? Object.hasOwn(node.model.flags, name) : inventory[name]?.global === true || ["help", "json", "version"].includes(name);
+    if (!allowed) throw new TypeError("Flag is not accepted by this route.");
+    const definition = node.model?.flags[name]?.definition ?? inventory[name]!.definition;
+    if (rawFlags[name]!.length > 1 && !definition.repeatable) throw new TypeError("Duplicate flag.");
+  }
+  const help = bool("help"); const version = bool("version");
+  if (help && (version || namedOffline) || version && namedOffline && namedOffline !== "version") throw new TypeError("Conflicting offline routes.");
+  if (help || version || namedOffline || !node.path && argv.length === 0) return { kind: "offline", route: help ? "help" : namedOffline ?? (version ? "version" : "help"), path: node.path, json };
+  if (!node.model) throw new TypeError("A group requires a command or --help.");
+  const callerFlags: Record<string, string | number | boolean | readonly (string | number | boolean)[]> = Object.create(null);
+  const extra: { file?: string; out?: string; level?: string; passthrough?: readonly string[] } = {};
+  const model = node.model;
+  const selected = new Set<string>();
+  for (const [name, tokens] of Object.entries(rawFlags)) {
+    if (["help", "json", "version"].includes(name)) continue;
+    const entry = model.flags[name]!;
+    const values = tokens.map(token => tokenValue(entry.definition.value, token));
+    if (entry.help.source === "selector") {
+      if (values[0] !== true) throw new TypeError("Detail selectors must be selected, not negated.");
+      selected.add(name);
+    } else if (name === "file" || name === "out") extra[name] = values[0] as string;
+    else callerFlags[name] = entry.definition.repeatable ? values : values[0]!;
+  }
+  if (selected.size) {
+    const matches = Object.entries(model.selectors).filter(([, set]) => set.every(name => selected.has(name)));
+    const mostSpecific = matches.filter(([, set]) => !matches.some(([, other]) => other.length > set.length && set.every(name => other.includes(name))));
+    if (mostSpecific.length !== 1 || mostSpecific[0]![1].length !== selected.size) throw new TypeError("Ambiguous or incomplete detail selector set.");
+    extra.level = mostSpecific[0]![0];
+  }
+  const args: Record<string, string | number | boolean | readonly (string | number | boolean)[]> = Object.create(null);
+  let offset = 0;
+  for (const arg of model.spec.args) {
+    if (arg.variadic) { args[arg.name] = positionals.slice(offset).map(value => tokenValue(arg.value, value)); offset = positionals.length; }
+    else if (offset < positionals.length) args[arg.name] = tokenValue(arg.value, positionals[offset++]!);
+  }
+  if (offset < positionals.length) throw new TypeError("Unexpected positional argument.");
+  if (passthrough !== undefined) extra.passthrough = passthrough;
+  return { kind: "leaf", node, input: checkCaller(model, { args, flags: callerFlags, ...extra }, false), json };
+}

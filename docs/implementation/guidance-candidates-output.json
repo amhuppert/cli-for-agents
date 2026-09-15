@@ -1,0 +1,22 @@
+{
+  "artifacts": [
+    "src/guidance/index.ts",
+    "src/internal/guidance-rules.ts",
+    "tests/guidance.test.mjs",
+    "docs/implementation/guidance-candidates.md",
+    "docs/implementation/guidance-candidates-output.json",
+    ".cc/graph-workflow-docs/guidance-candidates-evidence.md"
+  ],
+  "checks": [
+    "Constructor red/green: stub failures confirmed after restoring missing lockfile dependencies; four focused tests passed in vrun-1daaaafd-46f9-4b39-88bb-2edbd96f6c4b; full typecheck vrun-07861cd8-3903-4eb4-9841-b1fd26dd98d8 passed.",
+    "Evaluation/decoder red/green: 34 new tests failed on existing stubs, then all 38 passed in vrun-3b2551df-289c-4de6-b571-28375a6c26b2. Expanded exact-file suite: all 42 guidance tests passed in vrun-fca82662-a5d2-4c68-90bd-c010890f739d.",
+    "Full runtime suite passed: vrun-55f2fb75-9038-40fd-8838-5c9cef2df125.",
+    "Full typecheck passed: vrun-1f9aa329-2b97-4e8e-9407-4caa6e41491c.",
+    "Full build passed: vrun-4bf93ff9-66bc-44a6-9472-fa15723e1bcb. All launched checks settled; cctl validate status reported no active runs.",
+    "Acceptance verified: state-conditional candidates preserve competing instructions/hints and more than two reminders; stable authority/command/rule provenance and priorities survive; synchronous/asynchronous sink failures preserve candidates and attributable issues; strict authoritative decode rejects malformed provenance/events/tiers and mandatory byte overflow.",
+    "Exact serialized ASCII, multibyte Unicode, supplementary characters, quotes and backslashes accepted at 1024 bytes and rejected at one-byte overflow for instructions/reminders. Decoder and admission reject hostile accessors and preserve captured descriptor facts without invoking virtual serialization hooks.",
+    "Public guidance exports reach implementations; evaluator rejects handler input and contains no arbitration/sorting/cap. Existing response/post-operation signatures and documented production owners preserve the single-arbiter contract.",
+    "git diff --check passed. Concrete source scans found no eager heavy builtin/package imports, process output or diagnostic suppressions in changed runtime files. package.private remains true, runtime dependencies and exports unchanged; all edits remain local and no git lifecycle actions were performed."
+  ],
+  "summary": "Implemented immutable scoped reminder/steering admission, pure synchronous candidate evaluation with awaited firing observability, and strict authoritative batch decoding. Reused canonical hint/instruction and JSON/byte validators. Preserved provenance, evidence, priorities, competing guidance and sink diagnostics for the sole downstream arbiter. Governing source-of-truth entry 1, implementation-contract decisions 9/11, keeps evidence optional and assigns selection to response assembly; runtime composition owns post-operation providers/current-registry checks. All 42 focused tests and full registered validation checks pass; shared producer-consumer evidence is registered."
+}

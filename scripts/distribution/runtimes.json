@@ -1,0 +1,5 @@
+{
+  "node20": { "version": "v20.20.2", "executable": "/Users/alex/.local/share/cli-for-agents/runtimes/node20/bin/node", "environment": "DISTRIBUTION_NODE20" },
+  "nodeCurrent": { "version": "v24.16.0", "executable": "/Users/alex/.nvm/versions/node/v24.16.0/bin/node", "environment": "DISTRIBUTION_NODE_CURRENT" },
+  "bun": { "version": "1.3.14", "executable": "/Users/alex/.bun/bin/bun", "environment": "DISTRIBUTION_BUN" }
+}

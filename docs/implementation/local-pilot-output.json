@@ -1,0 +1,26 @@
+{
+  "artifacts": [
+    "examples/local-workspace/",
+    "tests/pilots/local.test.mjs",
+    "type-tests/local-pilot.ts",
+    "src/testing/index.ts",
+    "docs/implementation/local-pilot.md",
+    "docs/implementation/local-pilot-output.json",
+    ".cc/graph-workflow-docs/local-pilot-evidence.md"
+  ],
+  "checks": [
+    "PASS local-production-cli: real temporary JSON store, fresh Node processes and copied standalone 123832-byte bundle.",
+    "PASS local-command-matrix: none/init, payload read/write/twin, scalar write, derived/default/repeat/variadic/file/stdin inputs, grouped detail and raw ingestion.",
+    "PASS local-durable-effects: byte-identical state after validation; fresh processes observe the persisted receipt; delivery failure preserves one commit without replay.",
+    "PASS local-output-policy: production page helper; all seven inherited callbacks on local registry/store; actual text/JSON parity; canonical forbidden roots and symlink ancestors; exact binary bytes/count/hash.",
+    "Focused 11-test pilot suite passed: vrun-3923f3f3-27e2-488f-8c32-e1d26db84f13.",
+    "Full repository test suite passed: vrun-b38ed0cc-8f74-4947-a0b0-15ef03eeebda.",
+    "Full typecheck passed: vrun-7ea2c364-afeb-4a89-bd9c-5c28c397778e.",
+    "Full ESM/declaration build passed: vrun-7548643f-947c-4844-802d-724cc227609f.",
+    "Initial behavior reds: missing init route and missing contracts route. Missing development dependency was repaired with locked npm ci and not counted as red evidence.",
+    "Compiler red exposed TestRunOptions.host rejecting real nodeHost; Host parameter and positive compiler control now pass without casts or fabricated brands.",
+    "Charter audits passed: private package, zero runtime dependencies, four public exports, public-only pilot imports, lazy declarations, no direct process output, preserved guidance/recovery/domain classification, git diff --check.",
+    "All launched validations settled. No consumer repository writes, publication or git lifecycle actions."
+  ],
+  "summary": "Delivered and verified the executable local JSON-backed workspace pilot and all local acceptance outcomes. All seven inherited cases execute against this actual consumer registry and domain store. The only library change widens the testkit host type to its implemented Host capability interface. Governing source-of-truth entry 1 decisions 2\u20138 and 11\u201315 and entry 6 resolve context, decoder/twin, scalar/binary, protocol, artifact and page semantics. This finite pilot makes no SQLite, crash-recovery or consumer-migration claim."
+}
