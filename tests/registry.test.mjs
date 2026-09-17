@@ -43,8 +43,6 @@ for (const [name, configure, error] of [
   ["forged doctor", x => ({ doctor: { ...x.options.doctor } }), /doctor|invocation/i],
   ["missing provider", x => ({ commands: [x.doctor, x.command("remote", { requires: "remote" })] }), /context|provider/i],
   ["reserved route", x => ({ commands: [x.doctor, x.command("exit-codes")] }), /reserved/i],
-  ["global kind conflict across leaves", x => ({ commands: [x.doctor, x.command("one", { flags: { filter: stringFlag() } }), x.command("two", { flags: { filter: valueFlag({ kind: "boolean" }) } })] }), /kind/i],
-  ["generated name across leaves", x => ({ commands: [x.doctor, x.command("one", { flags: { text: stringFlag({ fileSource: { maxBytes: bytes(10) } }) } }), x.command("two", { flags: { "text-file": stringFlag() } })] }), /collision/i],
   ["duplicate twin", x => ({ commands: [x.doctor, x.f.defineCommand(spec("write", { effects: "write", payload: { maxBytes: bytes(10), validatePath: "doctor" } }), { ...binding, examples: [{ file: "payload.json", why: "Write" }] })] }), /duplicate/i],
   ["unsafe skill path", x => ({ documentation: { directory: "docs" }, commands: [x.doctor, x.command("list", { skills: [{ path: "../secret", readWhen: "Always" }] })] }), /reference|skill/i],
   ["missing documentation root", x => ({ commands: [x.doctor, x.command("list", { skills: [{ path: "guide.md", readWhen: "Always" }] })] }), /documentation/i],
@@ -156,6 +154,71 @@ function leaf(result) {
   return result.invocation;
 }
 const arg = (name, value = { kind: "string" }, extra = {}) => ({ name, description: name, value, ...extra });
+
+test("generated file and selector names belong to their leaf without cross-command owner collisions", async () => {
+  const x = fixture();
+  const generated = x.command("generated", { flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) }, levels: { full: { output: "bounded" } } });
+  const ordinary = x.command("ordinary", { flags: { "text-file": stringFlag(), full: valueFlag({ kind: "boolean" }) } });
+  const { helpNode } = await import("cli-for-agents/runtime");
+  const { rebindInvocation } = await import("../dist/internal/registry.js");
+  const { invocationArgv } = await import("../dist/internal/invocations.js");
+  for (const commands of [[x.doctor, generated, ordinary], [ordinary, generated, x.doctor]]) {
+    const cli = createCli({ ...x.options, commands });
+    const registry = cliRegistry(cli);
+    const first = leaf(resolve(registry, ["generated", "--text-file", "note.md", "--full"]));
+    assert.deepEqual(first.input.flags, {});
+    assert.equal(first.input.sources[0].kind, "flag");
+    assert.equal(first.input.sources[0].name, "text");
+    assert.equal(first.input.sources[0].path, "note.md");
+    assert.equal(first.input.level, "full");
+    const second = leaf(resolve(registry, ["ordinary", "--text-file", "literal text", "--full=false"]));
+    assert.deepEqual(second.input.flags, { "text-file": "literal text", full: false });
+    assert.deepEqual(second.input.sources, []);
+    assert.equal(second.input.level, undefined);
+    assert.equal(helpNode(cli, "generated").flags.find(flag => flag.name === "full").source, "selector");
+    assert.equal(helpNode(cli, "ordinary").flags.find(flag => flag.name === "full").source, "domain");
+    for (const ref of [invocation(generated, { flags: { "text-file": "note.md" }, level: "full" }), invocation(ordinary, { flags: { "text-file": "literal text", full: false } })]) {
+      const rebound = rebindInvocation(registry, JSON.parse(JSON.stringify(ref)));
+      assert.deepEqual(leaf(resolve(registry, invocationArgv(rebound))).input, leaf(resolve(registry, invocationArgv(ref))).input);
+    }
+  }
+});
+
+test("global, reserved and generated names still cannot collide within a leaf", () => {
+  for (const [globals, extra] of [
+    [{ profile: stringFlag() }, { flags: { profile: valueFlag({ kind: "boolean" }) } }],
+    [{ message: stringFlag({ fileSource: { maxBytes: bytes(20) } }) }, { flags: { "message-file": stringFlag() } }],
+    [{ full: valueFlag({ kind: "boolean" }) }, { levels: { full: { output: "bounded" } } }],
+    [{}, { flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }), "text-file": stringFlag() } }],
+    ...["file", "out", "json"].map(name => [{}, { flags: { [name]: stringFlag() } }]),
+  ]) assert.throws(() => fixture(globals).command("inspect", extra), /collision|reserved/i);
+});
+
+test("globals keep their meaning before, between and after path and positional tokens", () => {
+  const x = parseFixture({ args: [arg("name")] }, { args: { name: "one" } }, { profile: stringFlag() });
+  for (const argv of [
+    ["--profile", "dev", "items", "list", "one"],
+    ["items", "--profile=dev", "list", "one"],
+    ["items", "list", "--profile", "dev", "one"],
+    ["items", "list", "one", "--profile=dev"],
+  ]) {
+    const parsed = leaf(x.parse(argv));
+    assert.deepEqual(parsed.input.globals, { profile: "dev" });
+    assert.deepEqual(parsed.input.args, { name: "one" });
+  }
+});
+
+test("all command-specific generated inputs require the full leaf path", () => {
+  const x = parseFixture({ payload: { maxBytes: bytes(50) }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) }, levels: { full: { output: "artifact-eligible" } } }, { file: "data.json" });
+  for (const flags of [["--text=value"], ["--text-file", "note.md"], ["--file=data.json"], ["--full"], ["--out", "result.json"]]) {
+    for (const argv of [[...flags, "items", "list", "--help"], ["items", ...flags, "list", "--help"]]) {
+      const refused = x.parse(argv);
+      assert.equal(refused.kind, "invalid", JSON.stringify(argv));
+      assert.match(refused.issues[0].message, /after the complete command path/);
+    }
+  }
+  assert.equal(x.parse(["items", "list", "--file", "data.json", "--full", "--out", "result.json"]).kind, "leaf");
+});
 
 test("scalar parser preserves negative integers, equals strings and explicit booleans", () => {
   const x = parseFixture({ args: [arg("offset", { kind: "integer", min: -10 })], flags: { limit: valueFlag({ kind: "integer" }), text: stringFlag(), quiet: valueFlag({ kind: "boolean" }) } }, { args: { offset: 0 } });

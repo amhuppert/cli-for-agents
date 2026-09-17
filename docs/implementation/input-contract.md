@@ -70,8 +70,10 @@ The declaration boundary rejects widened paths, argument/flag/enum/level
 inventories, reserved flags, derived-file/domain collisions, selector/domain
 collisions and reserved selectors. Family binding adds global collisions. Runtime
 registration must repeat these checks for JavaScript/type erasure and enforce
-registry-wide boolean/value consistency, cross-command generated/global name
-collisions, selector set ambiguity and valid spellings. Help and parser inventories
+selector set ambiguity and valid spellings. Name/kind ownership belongs to each
+complete leaf input model, including its globals; unrelated leaves may reuse names.
+Global and framework help/JSON/version flags may surround route tokens, while all
+command-specific flags follow the complete leaf path. Help and parser inventories
 must derive from these declarations, not copied tables.
 
 Compiler evidence: `type-tests/input-positive.ts` is compiled in a fresh program

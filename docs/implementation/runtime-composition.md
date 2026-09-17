@@ -27,6 +27,15 @@ while copying candidate/diagnostic DTOs: JSON-cloning policy broke the artifact
 owner's WeakSet identity. The public explicit-output regression reproduces that
 failure with cloning restored, and passes with identity retention.
 
+Guidance providers return `GuidanceSources`: one evaluated batch or a readonly
+array, with an empty array representing no guidance. Collection admission snapshots
+the outer array without invoking accessors or copying local rule identities. Each
+batch is checked independently for retained rule membership, wire shape, current
+command and runnable hints. An invalid batch fails the response while valid sibling
+instructions survive. Authorities and firing evidence remain unchanged; the one
+arbiter orders reminders across sources, applies its shared cap, and records
+conflicting instructions with both provenances.
+
 ## Initial verification
 
 12 public-package tests in tests/runtime.test.mjs cover registration, six offline

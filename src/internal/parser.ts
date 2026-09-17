@@ -19,13 +19,16 @@ function tokenValue(definition: FlagEntry["definition"]["value"], token: string 
   return scalar(definition, token);
 }
 
-/** Scan once using the registry-wide name/kind inventory; then check the leaf.
+/** Globals may surround route tokens; command-specific flags follow the leaf.
  * Retain format before reporting any refusal. Keep scanning after lexical errors
  * so option ordering cannot change error representation; never scan past --. */
 export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv: readonly string[], retainFormat: (json: boolean) => void = () => {}): TokenResolution {
   if (!Array.isArray(argv) || argv.some(token => typeof token !== "string" || token.includes("\0"))) throw new TypeError("Expected argv string tokens.");
-  const inventory: Record<string, FlagEntry> = Object.create(null);
-  for (const node of Object.values(nodes)) if (node.model) Object.assign(inventory, node.model.flags);
+  const sharedFlags: Record<string, FlagEntry> = Object.create(null);
+  const familyFlags = Object.values(nodes).find(candidate => candidate.model)?.model?.flags ?? {};
+  for (const [name, entry] of Object.entries(familyFlags)) {
+    if (entry.global || entry.help.source === "framework" && entry.help.kind === "boolean") sharedFlags[name] = entry;
+  }
   let node = nodes[""]!; let options = true;
   let namedOffline: "version" | "exit-codes" | undefined;
   const positionals: string[] = [];
@@ -46,8 +49,11 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
       if (options && token.startsWith("--")) {
         const equals = token.indexOf("=");
         const name = token.slice(2, equals < 0 ? undefined : equals);
-        const entry = inventory[name];
-        if (!entry) throw new TypeError("Unknown flag.");
+        const entry = (node.model?.flags ?? sharedFlags)[name];
+        if (!entry) {
+          const help = [nodes[""]?.summary, node.path, "--help"].filter(Boolean).join(" ");
+          throw new TypeError(`Flag --${name} is not accepted here.${node.model ? "" : " Put command-specific flags after the complete command path."} Use ${help}.`);
+        }
         const values = rawFlags[name] ??= [];
         if (equals >= 0) values.push(token.slice(equals + 1));
         else if (entry.help.kind === "boolean") values.push(true);
@@ -81,9 +87,9 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   retainFormat(json);
   if (scanError) throw scanError;
   for (const name of Object.keys(rawFlags)) {
-    const allowed = node.model ? Object.hasOwn(node.model.flags, name) : inventory[name]?.global === true || ["help", "json", "version"].includes(name);
-    if (!allowed) throw new TypeError("Flag is not accepted by this route.");
-    const definition = node.model?.flags[name]?.definition ?? inventory[name]!.definition;
+    const entry = (node.model?.flags ?? sharedFlags)[name];
+    if (!entry) throw new TypeError("Flag is not accepted by this route.");
+    const definition = entry.definition;
     if (rawFlags[name]!.length > 1 && !definition.repeatable) throw new TypeError("Duplicate flag.");
   }
   const help = bool("help"); const version = bool("version");

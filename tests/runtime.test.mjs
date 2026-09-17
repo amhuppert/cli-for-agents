@@ -31,6 +31,43 @@ async function run(x, argv = ['inspect', '--json'], override = {}) {
 }
 function wire(result) { assert.equal(result.stderr, ''); return decodeEnvelope(JSON.parse(result.stdout)); }
 
+test('the public runtime scopes same-name boolean and value flags to their leaf in either registration order', async () => {
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: { profile: { description: 'Profile', value: { kind: 'string' } } } });
+  const define = (path, value) => family.defineCommand(spec({ path, requires: 'none', flags: { filter: { description: 'Filter', value } } }), {
+    examples: [{ why: 'Inspect' }], handler: async () => ({ default: { run: async ({ ctx }) => ({ ok: true, data: { filter: ctx.flags.filter, profile: ctx.globals.profile } }) } }),
+  });
+  const list = define('items list', { kind: 'boolean' });
+  const show = define('items show', { kind: 'string' });
+  for (const commands of [[list, show], [show, list]]) {
+    let cli;
+    assert.doesNotThrow(() => { cli = createCli({ name: 'tool', version: '1', family, commands,
+      groups: [defineGroup({ path: 'items', summary: 'Items', description: 'Inspect items' })], contexts: {}, doctor: invocation(list, {}),
+      output: { artifacts: { directory: '/artifacts', forbiddenRoots: [] } },
+    }); }, 'different command-local flag kinds must be accepted');
+    for (const [argv, filter] of [
+      [['--profile', 'dev', 'items', 'list', '--filter'], true],
+      [['items', '--profile=dev', 'list', '--filter=false'], false],
+      [['items', 'show', '--filter', 'two words', '--profile', 'dev'], 'two words'],
+      [['items', 'show', '--profile=dev', '--filter=--help'], '--help'],
+    ]) {
+      const result = await runCli(cli, { argv: [...argv, '--json'], env: {}, host: createTestHost({ files: { '/artifacts/.keep': '' } }), signal: new AbortController().signal });
+      assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+      assert.deepEqual(wire(result).payload.data, { filter, profile: 'dev' });
+    }
+  }
+});
+
+test('command-specific flags before a leaf fail with placement guidance and keep JSON selection', async () => {
+  const x = fixture({ spec: { flags: { text: { description: 'Text', value: { kind: 'string' } } } } });
+  for (const argv of [['--text=message', 'inspect', '--json'], ['--json', '--text', 'message', 'inspect']]) {
+    const result = await run(x, argv);
+    assert.equal(result.exitCode, 2, 'a domain flag before the command must be refused');
+    assert.match(wire(result).error.issues[0].message, /after the complete command path/);
+    assert.deepEqual(x.events, []);
+    assert.deepEqual(x.host.calls, []);
+  }
+});
+
 test('createCli rejects foreign-family commands through canonical registration', () => {
   const x = fixture();
   const other = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
@@ -93,10 +130,79 @@ test('omitted host uses Node capabilities without process output', async () => {
 });
 
 import { payloadRead, mutation, binaryArtifact, recoveryFacts, runner, defineGroup } from 'cli-for-agents';
-import { instruction, hint, evaluateGuidance, defineSteering, decodeEvaluatedGuidance } from 'cli-for-agents/guidance';
+import { instruction, hint, evaluateGuidance, defineSteering, defineReminderRule, decodeEvaluatedGuidance } from 'cli-for-agents/guidance';
 const schema = validate => ({ '~standard': { version: 1, vendor: 'runtime-test', validate } });
 const receipt = recoveryFacts([{ kind: 'receipt', id: 'saved-42' }]);
 const instructionBatch = (command, text = 'Inspect saved state.') => evaluateGuidance({ command, authority: 'server', state: {}, rules: [defineSteering({ id: 'required', appliesTo: [command], when: () => true, tier: 'instruction', render: () => instruction('server', text) })], eventSink: () => {} });
+
+test('multiple guidance authorities share one priority order and reminder cap in either source order', async () => {
+  for (const reverse of [false, true]) {
+    const fired = [];
+    const x = fixture({ guidance: { load: async () => ({ default: async ({ command }) => {
+      const batches = await Promise.all([
+        ['server', [['server-high', 30], ['server-low', 10]]],
+        ['filesystem', [['local-middle', 20], ['local-low', 0]]],
+      ].map(([authority, rows]) => evaluateGuidance({ command, authority, state: { active: true },
+        rules: rows.map(([id, priority]) => defineReminderRule({ id, priority, appliesTo: [command], evidence: 'Observed fixture constraint', when: state => state.active, text: () => id })),
+        eventSink: event => fired.push({ authority, ...event }),
+      })));
+      const [server, local] = batches;
+      const transported = decodeEvaluatedGuidance(JSON.parse(JSON.stringify(server)));
+      return reverse ? [local, transported] : [transported, local];
+    } }), conflictSink: () => { throw Error('no conflict expected'); } } });
+    const result = await run(x);
+    assert.equal(result.exitCode, 0, 'a provider may return independently evaluated authority batches');
+    assert.deepEqual(wire(result).reminders, ['server-high', 'local-middle']);
+    assert.deepEqual(new Set(fired.map(event => JSON.stringify([event.authority, event.ruleId]))), new Set([
+      ['server', 'server-high'], ['server', 'server-low'], ['filesystem', 'local-middle'], ['filesystem', 'local-low'],
+    ].map(event => JSON.stringify(event))));
+  }
+});
+
+test('cross-authority instructions preserve both provenances and fail once without losing applied effects', async () => {
+  const conflicts = [];
+  const x = fixture({ spec: { effects: 'write' }, run: async () => ({ effect: 'applied', recovery: receipt, result: { ok: true, data: {} } }),
+    guidance: { load: async () => ({ default: async ({ command }) => Promise.all([
+      ['server', 'Stop the operation.'], ['filesystem', 'Continue the operation.'],
+    ].map(async ([authority, text]) => decodeEvaluatedGuidance(JSON.parse(JSON.stringify(await evaluateGuidance({ command, authority, state: { active: true },
+      rules: [defineSteering({ id: 'required', appliesTo: [command], when: state => state.active, tier: 'instruction', render: () => instruction(authority, text) })], eventSink: () => {},
+    })))))) }), conflictSink: event => { assert.equal(x.events.at(-1), 'release'); conflicts.push(event); } } });
+  const result = await run(x);
+  const value = wire(result);
+  assert.equal(result.exitCode, 1);
+  assert.equal(value.error.code, 'KERNEL_GUIDANCE', 'conflicting sources must reach the arbiter');
+  assert.equal(value.effect, 'applied');
+  assert.deepEqual(value.recovery, receipt);
+  assert.match(value.instruction, /Stop and report conflicting/);
+  assert.equal(conflicts.length, 1);
+  assert.deepEqual(conflicts[0].conflict.instructions.map(entry => entry.provenance), [
+    { kind: 'rule', authority: 'filesystem', commandPath: 'inspect', ruleId: 'required' },
+    { kind: 'rule', authority: 'server', commandPath: 'inspect', ruleId: 'required' },
+  ]);
+});
+
+for (const invalid of ['malformed', 'wrong-command']) test(`a ${invalid} guidance batch fails without discarding another authority's required instruction`, async () => {
+  const foreign = fixture({ spec: { path: 'elsewhere' } });
+  const x = fixture({ guidance: { load: async () => ({ default: async ({ command }) => {
+    const valid = await instructionBatch(command, 'Keep the saved receipt.');
+    const bad = invalid === 'malformed' ? { authority: 'broken' }
+      : decodeEvaluatedGuidance(JSON.parse(JSON.stringify(await instructionBatch(foreign.command, 'Foreign instruction.'))));
+    return [bad, valid];
+  } }), conflictSink: () => { throw Error('invalid source must not cause an instruction conflict'); } } });
+  const result = await run(x);
+  const value = wire(result);
+  assert.equal(result.exitCode, 1);
+  assert.equal(value.error.code, 'KERNEL_CONTRACT');
+  assert.equal(value.instruction, 'Keep the saved receipt.', 'a bad source must not erase a valid sibling batch');
+  assert.doesNotMatch(result.stdout, /Foreign instruction/);
+});
+
+test('an empty guidance collection is a successful no-guidance result', async () => {
+  const x = fixture({ guidance: { load: async () => ({ default: async () => [] }), conflictSink: () => {} } });
+  const result = await run(x);
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(wire(result).reminders, []);
+});
 
 test('context-free production command exposes its family catalog and no app', async () => {
   const x = fixture({ spec: { requires: 'none' }, run: async input => {

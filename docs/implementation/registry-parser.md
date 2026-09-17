@@ -17,8 +17,9 @@ No declaration constructor calls a handler, provider, policy or guidance loader.
 
 `createCli` calls private `register` synchronously. Registration rejects duplicate
 paths, missing parents, dangling related/flow references, foreign/forged commands,
-missing providers, inconsistent boolean/value kinds, and generated/global/domain
-name collisions. Payload-write twins share their source command and input model;
+missing providers, and generated/global/domain name collisions within a leaf's
+complete input model. Unrelated leaves may reuse names with different kinds or
+owners. Payload-write twins share their source command and input model;
 read payloads have no twin. Skill references require a documentation root and safe
 relative syntax. Async reference tooling owns file existence and canonical-root
 containment, as required by decision 13.
@@ -46,8 +47,11 @@ Runtime-composition owns converting ContractViolation data into canonical respon
 
 Scalar flags accept equals or separate values, strict integers including negatives,
 explicit boolean equals values, and declaration-derived value checks. Duplicate
-scalar flags, unknown flags and extra inputs are refused. Globals work around route
-tokens and remain separate from local flags. Repeated flags retain occurrence order;
+scalar flags, unknown flags and extra inputs are refused. Globals and framework
+help/JSON/version flags work around route tokens. Command-specific flags, including
+generated file, payload, selector and output flags, follow the complete leaf path;
+an earlier occurrence fails with placement guidance without guessing token roles.
+Globals remain separate from local flags. Repeated flags retain occurrence order;
 absent optional repetitions/variadics become empty arrays. Required variadics need
 at least one item. `--` ends options; declared passthrough receives all remaining
 tokens verbatim, while other commands assign them to declared positionals.

@@ -47,8 +47,10 @@ Keep specs literal, for example `as const satisfies CommandSpec`. The binding
 contains nonempty examples and a lazy handler module loader. Widened/open input
 inventories, unknown caller keys and secret suggestion values fail compiler
 controls. Runtime admission checks JavaScript/erased values, duplicate paths,
-parents, examples, catalog membership, global/generated name collisions and
-registry-wide boolean/value conflicts.
+parents, examples, catalog membership and name collisions within each complete
+leaf input model. Different leaves may use the same flag name with different
+kinds or generated/domain roles. Globals and framework help/JSON/version flags
+may surround command-path tokens; command-specific flags follow the full leaf path.
 
 Caller inputs and handler inputs are distinct:
 
@@ -132,6 +134,12 @@ predicates at their state authority, returning candidates, provenance and firing
 events. They do not arbitrate handler guidance. Sources with rules require a
 firing sink; configured local arbitration requires a conflict sink. Remote decoding
 checks shape/protocol, while transport owns authenticity. Evidence is optional.
+
+A `GuidanceProvider` returns `GuidanceSources`: one evaluated batch or a readonly
+array of independently evaluated authority batches, including an empty array.
+Each batch keeps its authority, rule provenance and firing events. A malformed or
+wrong-command batch causes a contract failure without discarding valid siblings;
+the runtime does not merge authorities or synthesize firing evidence.
 
 Response assembly is the sole arbiter. Instructions suppress hints. Reminders
 are priority ordered, tied by stable rule ID, text-deduplicated and capped at two.

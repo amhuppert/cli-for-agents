@@ -75,8 +75,10 @@ export type PostOperationContext<Contexts> = SelectedContext<Contexts> & {
   readonly host: Host;
   readonly signal: AbortSignal;
 };
+/** Separate authority batches retain their provenance through one arbitration. */
+export type GuidanceSources = EvaluatedGuidance | readonly EvaluatedGuidance[];
 /** Loaded only for execution, while the selected app is still alive. */
-export type GuidanceProvider<Contexts> = (input: PostOperationContext<Contexts>) => Promise<EvaluatedGuidance>;
+export type GuidanceProvider<Contexts> = (input: PostOperationContext<Contexts>) => Promise<GuidanceSources>;
 export type ArtifactPolicySource<Contexts> = ArtifactPolicy | {
   readonly resolve: (input: PostOperationContext<Contexts>) => ArtifactPolicy | Promise<ArtifactPolicy>;
 };

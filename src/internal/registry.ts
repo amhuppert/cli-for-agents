@@ -50,7 +50,6 @@ export function register<Contexts, D extends ErrorDefinitions, G extends Readonl
     checkGroup(group); add({ path: group.path, kind: "group", summary: group.summary, description: group.description, group });
   }
   const tokens = new Set<object>();
-  const kinds = new Map<string, string>(); const owners = new Map<string, string>();
   for (const command of options.commands) {
     const data = commandData(command);
     if (data.family !== options.family) throw new TypeError("Command belongs to a foreign family.");
@@ -59,14 +58,6 @@ export function register<Contexts, D extends ErrorDefinitions, G extends Readonl
     tokens.add(command);
     add({ path: spec.path, kind: "command", summary: spec.summary, description: spec.description, command, model: data.model });
     if (spec.effects === "write" && spec.payload) add({ path: spec.payload.validatePath, kind: "validation", summary: `Validate: ${spec.summary}`, description: spec.description, command, model: data.model });
-    for (const [name, entry] of Object.entries(data.model.flags)) {
-      const previous = kinds.get(name);
-      if (previous && previous !== entry.help.kind) throw new TypeError("Registry-wide flag kind conflict.");
-      kinds.set(name, entry.help.kind);
-      const owner = entry.help.source === "file" ? `file:${entry.target}:${entry.global}` : entry.help.source;
-      if (owners.has(name) && owners.get(name) !== owner) throw new TypeError("Registry-wide generated/global name collision.");
-      owners.set(name, owner);
-    }
   }
   for (const node of Object.values(nodes)) {
     if (!node.path) continue;

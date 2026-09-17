@@ -58,7 +58,10 @@ consumer migration. Keep package.private true.
    matching set; reject ties/incomparable matches and extra selector tokens. Thus
    --context can select context and --context --full can select full when those
    exact sets are declared. Domain filters remain independent. Global/generated
-   name collisions and boolean/value-kind conflicts are rejected registry-wide.
+   name collisions are rejected within each complete leaf input model. Different
+   leaves may reuse a name with different kinds or generated/domain roles. Global
+   and framework help/JSON/version flags may surround route tokens; command-specific
+   flags follow the complete leaf path.
 6. Plain reads and scalar writes have a direct runner. Structured-payload reads
    and mutations declare Standard Schema v1 decoders in their lazy modules.
    Local flag, file, JSON and schema errors fail before context acquisition that
@@ -95,6 +98,9 @@ consumer migration. Keep package.private true.
 9. Rule evaluation returns candidates, stable provenance and firing events. It
    does not accept handler guidance or choose final instruction/hint. Response
    assembly arbitrates once over handler, local and decoded authoritative batches.
+   A guidance provider may return one evaluated batch or a readonly batch array;
+   each authority retains its own provenance and firing events. Invalid batches
+   fail the response without discarding valid sibling guidance.
    Instruction suppresses hint; reminders are priority ordered with stable-ID ties,
    deduplicated and capped at two. Distinct required instructions produce one
    stop-and-report conflict. Evidence stays optional. A rule source requires a
