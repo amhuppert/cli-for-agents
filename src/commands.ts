@@ -4,7 +4,7 @@ import { makeFamily, makeGroup, makeFlow } from "./internal/declarations.js";
 import { makePayloadModule, makeRenderedRunner } from "./internal/runner-modules.js";
 import { makeInvocation } from "./internal/invocations.js";
 import type { AnyCommitReport, AnyResult, Effect, Preparation, Prepared, ErrorDefinitions, ErrorCatalog, FamilyCode, Result, CommitReport } from "./results.js";
-import type { Host, Environment } from "./runtime/index.js";
+import type { Host, Environment, InputFileSource } from "./runtime/index.js";
 import type { JsonData, NonEmpty } from "./values.js";
 
 export type SkillReference = { readonly path: string; readonly readWhen: string };
@@ -49,6 +49,7 @@ export type HandlerContext<S extends CommandSpec, D extends ErrorDefinitions = E
   readonly command: Command<S, never, FamilyCode<D>, G>;
   readonly errors: ErrorCatalog<D>;
   readonly globals: ParsedFlags<G>;
+  readonly inputFiles: readonly InputFileSource[];
   readonly env: Environment;
   readonly host: Host;
   readonly clock: Pick<Host, "now" | "sleep">;

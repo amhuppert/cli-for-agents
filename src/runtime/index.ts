@@ -68,9 +68,17 @@ export type HelpContext = {
 export type SelectedContext<Contexts> =
   | { readonly requires: "none"; readonly app?: never }
   | { [K in keyof Contexts & string]: { readonly requires: K; readonly app: Contexts[K] } }[keyof Contexts & string];
+/** Original declared file origins, never contents or secret flag paths. '-' denotes stdin.
+ * A derived --body-file source uses its logical flag name 'body'. */
+export type InputFileSource = {
+  readonly kind: "payload" | "argument" | "flag" | "global";
+  readonly name: string;
+  readonly path: string;
+};
 export type PostOperationContext<Contexts> = SelectedContext<Contexts> & {
   readonly command: Command;
   readonly outcome: OperationOutcome;
+  readonly inputFiles: readonly InputFileSource[];
   readonly env: Environment;
   readonly host: Host;
   readonly signal: AbortSignal;

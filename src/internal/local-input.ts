@@ -1,7 +1,7 @@
 import { recordTestEvent } from "./test-observation.js";
 import type { ParsedInvocation } from "./registry.js";
 import { checkParsedInvocation } from "./registry.js";
-import type { ResolvedRunRequest } from "../runtime/index.js";
+import type { InputFileSource, ResolvedRunRequest } from "../runtime/index.js";
 import type { CheckedInput } from "./input-model.js";
 import { scalar } from "./input-model.js";
 import type { Issue, KernelCode } from "../results.js";
@@ -15,6 +15,7 @@ import type { Sha256 } from "../values.js";
 import type { Flag } from "../input.js";
 export type LocalInput = {
   readonly args: CheckedInput["args"]; readonly flags: CheckedInput["flags"]; readonly globals: CheckedInput["globals"];
+  readonly inputFiles: readonly InputFileSource[];
   readonly payload?: unknown; readonly payloadHash?: Sha256; readonly module: Readonly<Record<string, unknown>>; readonly decoder?: LazyPayload;
 };
 export type LocalResolution = { readonly ok: true; readonly input: LocalInput } | { readonly ok: false; readonly code: KernelCode; readonly issues?: readonly Issue[] };
@@ -109,7 +110,10 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
       payloadHash = checkedSha256(await request.host.sha256(payloadBytes));
       request.signal.throwIfAborted();
     }
-    const resolved = frozenJson({ args, flags, globals }); assertRecord(resolved);
+    const inputFiles = input.sources
+      .filter(source => source.kind === "argument" || source.kind === "payload" || !model.flags[source.name]?.definition.secret)
+      .map(({ kind, name, path }) => ({ kind, name, path }));
+    const resolved = frozenJson({ args, flags, globals, inputFiles }); assertRecord(resolved);
     return { ok: true, input: Object.freeze({ ...resolved, module, ...(decoder ? { decoder, payload } : {}), ...(payloadHash ? { payloadHash } : {}) }) };
   } catch {
     return { ok: false, code: request.signal.aborted ? "KERNEL_CANCELLED" : phase };

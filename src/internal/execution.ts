@@ -173,7 +173,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
   try {
     request.signal.throwIfAborted();
     const ctx = Object.freeze({ command: invocation.command, errors, args: local.input.args, flags: local.input.flags,
-      globals: local.input.globals, env: request.env, host: request.host,
+      globals: local.input.globals, inputFiles: local.input.inputFiles, env: request.env, host: request.host,
       clock: Object.freeze({ now: request.host.now, sleep: request.host.sleep }), signal: request.signal,
       ...(spec.passthrough ? { passthrough: invocation.input.passthrough ?? [] } : {}) });
     const input = Object.freeze({ ctx, ...(selected.requires === "none" ? {} : { app: selected.app }),
@@ -219,7 +219,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
   let facts: PostOperationFacts | undefined;
   try {
     // A selected key was checked against the actual provider map before app binding.
-    const hookInput = Object.freeze({ ...selected, command: invocation.command, outcome: execution,
+    const hookInput = Object.freeze({ ...selected, command: invocation.command, outcome: execution, inputFiles: local.input.inputFiles,
       env: request.env, host: request.host, signal: request.signal }) as PostOperationContext<Contexts>;
     const returned = await postOperation(hookInput);
     const captured = executableRecord(returned);
