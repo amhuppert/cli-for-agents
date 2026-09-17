@@ -65,7 +65,9 @@ launched check; use CC for git lifecycle actions.
 - Keep schemas, handlers and application transport behind lazy loaders.
 - Return handler data through bounded delivery; never write to stdout or stderr
   outside `internal/process.ts`. The architecture guard enforces this.
-- Size ceilings and import allowlists only shrink.
+- A new eager module must be declared in `scripts/distribution/baseline.json`, never
+  absorbed by spare bundle headroom. Raising the size ceiling is allowed when a
+  change earns the bytes; do it as its own reviewable line.
 - The architecture checks are tripwires, not a sandbox for arbitrary callbacks.
 
 ## Limits

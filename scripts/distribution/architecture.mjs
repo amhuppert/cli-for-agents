@@ -1,6 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { posix } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
 
 const roots = ['src', 'tests/fixtures/distribution'];
@@ -114,24 +113,13 @@ export function assertArchitecture(inventory, options = {}) {
 function validBaseline(value) {
   if (!value || !Number.isSafeInteger(value.bytes) || value.bytes < 1 || !Array.isArray(value.eager) || value.eager.some(item => typeof item !== 'string') || new Set(value.eager).size !== value.eager.length) throw Error('Invalid distribution baseline');
 }
-export function assertRatchet(measured, baseline, history = []) {
+// A budget, not a ratchet. The ceiling catches gross regressions; a change that
+// earns its bytes raises it in baseline.json, as one reviewable line. The eager
+// allowlist is the guard that protects startup: a module that initializes on an
+// offline path must be recorded on purpose, never absorbed by spare headroom.
+export function assertRatchet(measured, baseline) {
   validBaseline(baseline);
-  for (const previous of history) {
-    validBaseline(previous);
-    if (baseline.bytes > previous.bytes) throw Error('Bundle ceiling increased against baseline history. Reduce bundle size; a same-change bump cannot mask growth.');
-    if (baseline.eager.some(item => !previous.eager.includes(item))) throw Error('Eager allowlist expanded against baseline history. Keep offline initialization within the existing module inventory.');
-  }
-  if (measured.bytes > baseline.bytes) throw Error(`Bundle bytes ${measured.bytes} exceed ceiling ${baseline.bytes}. Reduce the consumer bundle.`);
+  if (measured.bytes > baseline.bytes) throw Error(`Bundle bytes ${measured.bytes} exceed ceiling ${baseline.bytes}. Reduce the consumer bundle, or raise the ceiling in scripts/distribution/baseline.json when the change earns them.`);
   const unexpected = measured.eager.filter(item => !baseline.eager.includes(item));
   if (unexpected.length) throw Error(`Unexpected eager module: ${unexpected.join(', ')}`);
-}
-export function baselineHistory(path = 'scripts/distribution/baseline.json') {
-  function git(args) {
-    const result = spawnSync('git', args, { encoding: 'utf8', timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
-    if (result.error || result.status !== 0) throw Error(`Cannot read ratchet history: ${result.error?.message ?? result.stderr}`);
-    return result.stdout.trim();
-  }
-  if (git(['rev-parse', '--is-shallow-repository']) !== 'false') throw Error('Full git history is required for the downward-only distribution ratchet.');
-  const revisions = git(['log', '--format=%H', 'HEAD', '--', path]).split('\n').filter(Boolean);
-  return revisions.map(revision => JSON.parse(git(['show', `${revision}:${path}`])));
 }

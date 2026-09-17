@@ -47,7 +47,7 @@ cctl validate run test --queue-if-busy -- tests/execution.test.mjs
 registry. Full distribution tests require the pinned Node 20.20.2, Node 24.16.0
 and Bun 1.3.14 executables in [runtimes.json](scripts/distribution/runtimes.json).
 Missing runtimes fail. The [distribution guide](docs/implementation/distribution-guards.md)
-describes CI provisioning, executable bundling and the downward-only size/import
+describes CI provisioning, executable bundling and the bundle-size/import
 guards. Timings are advisory. CC manages git lifecycle actions.
 
 ## Run the pilots
