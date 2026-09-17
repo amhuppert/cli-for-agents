@@ -1,6 +1,6 @@
 /** Draft public surface for review; source-file deep imports are not supported. */
 export { bytes, count, id, milliseconds } from "./values.js";
-export type { ArtifactPath, Bytes, Count, Id, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe } from "./values.js";
+export type { ArtifactPath, Bytes, Count, Id, JsonData, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe } from "./values.js";
 export type { Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, ValueKind } from "./input.js";
 export { commandsFor, defineFlow, defineGroup, invocation, mutation, payloadRead, runner, writeRunner, validationInvocation } from "./commands.js";
 export type {

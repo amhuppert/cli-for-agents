@@ -65,7 +65,7 @@ prepared-token mint, policy resolver or artifact writer exists.
 
 | Source / exported type family | Canonical types | Owning runtime context |
 | --- | --- | --- |
-| values | ArtifactPath, Bytes, Count, Id, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe | kernel-values |
+| values | ArtifactPath, Bytes, Count, Id, JsonData, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe | kernel-values |
 | input | Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, ValueKind | registry-parser (declarations/parsing); execution-lifecycle (lazy schema) |
 | commands | Command, CommandBuilder, CommandFamily, CommandExample, CommandSpec, DisclosureLevel, Flow, Group, HelpSection, Invocation, RelatedCommand, SkillReference | registry-parser; help-reference consumes the same metadata |
 | runners | HandlerContext, HandlerInput, HandlerModule, MutationHandler, MutationModule, ReadHandler, WriteHandler, PayloadHandlerInput, PayloadReadHandler, PayloadReadModule | execution-lifecycle |
@@ -81,6 +81,9 @@ Any* types anchor JsonValue directly. Author DTO types have explicit Data/Summar
 parameters. Do not add recursive JsonData<JsonValue> defaults or suppress isolated
 positive diagnostics. JSON data, finite byte requests, manifests and final stream
 text remain distinct.
+
+Renderer helpers can import `JsonData<Dto>` from the package root to name the
+readonly JSON projection passed to `runner` and `writeRunner` text callbacks.
 
 ## Private producer/consumer seams
 
