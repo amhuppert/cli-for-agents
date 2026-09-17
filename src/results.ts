@@ -197,7 +197,7 @@ export type Prepared<Path extends string, Data> = Brand<"Prepared", Path> & {
 };
 export type Preparation<Data, Code extends string = string> =
   | { readonly ok: true; readonly value: Data; readonly error?: never }
-  | { readonly ok: false; readonly error: CliError<Code>; readonly value?: never };
+  | (Failure<never, Code> & { readonly value?: never });
 
 /** Only app-reported identifiers may claim durable recovery; never synthesize an ID. */
 export type RecoveryReference = { readonly kind: string; readonly id: string };

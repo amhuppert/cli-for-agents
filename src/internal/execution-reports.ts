@@ -65,10 +65,16 @@ export function checkedWrite(value: Readonly<Record<string, unknown>>, operation
   return result;
 }
 
-/** Preparation values may be opaque app objects; only refusal errors are JSON/catalog data. */
+/** Preparation values may be opaque app objects; refusals use normal checked error/guidance fields. */
 export function checkedPreparation(value: unknown, errors: ErrorCatalog<ErrorDefinitions>): import("../results.js").Preparation<unknown> {
   const prepared = executableRecord(value);
   if (prepared["ok"] === true) { assertFields(prepared, ["ok", "value"]); return { ok: true, value: prepared["value"] }; }
-  if (prepared["ok"] === false) { assertFields(prepared, ["ok", "error"]); return { ok: false, error: checkedError(prepared["error"], errors) }; }
+  if (prepared["ok"] === false) {
+    assertFields(prepared, ["ok", "error"], ["hint", "instruction"]);
+    const result = checkedResult(prepared, errors, false);
+    if (result.ok) throw new TypeError("Expected a preparation refusal.");
+    if (result.instruction) return { ok: false, error: result.error, instruction: result.instruction };
+    return { ok: false, error: result.error, ...(result.hint ? { hint: result.hint } : {}) };
+  }
   throw new TypeError("Invalid preparation result.");
 }
