@@ -71,7 +71,7 @@ export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRe
     ? await renderOffline(cli, { ...resolution, json: false }, request) : undefined;
   const host = request.host ?? await nodeHost();
   if (invalidBudget) execution = usageExecution([{ code: "KERNEL_USAGE", message: "Output budget must be a safe integer of at least 8192 bytes." }]);
-  else if (resolution.kind === "invalid") execution = usageExecution(resolution.issues.map(issue => ({ code: issue.code, message: issue.message })));
+  else if (resolution.kind === "invalid") execution = usageExecution(resolution.issues);
   else if (offline) execution = offlineExecution(offline.data, () => offline.stdout);
   else if (resolution.kind === "leaf") {
     const completed = await execute(resolution.invocation, { ...request, host }, options.contexts,

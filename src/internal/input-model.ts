@@ -1,11 +1,20 @@
 import type { CommandSpec } from "../commands.js";
 import type { Argument, Flag } from "../input.js";
 import type { HelpFlag } from "../runtime/index.js";
+import type { Issue } from "../results.js";
 import { bytes, id } from "../values.js";
 import type { Bytes } from "../values.js";
 import { assertFields, assertIdentifier, assertRecord, assertText, frozenJson } from "./validation.js";
 
 export const frameworkFlags = Object.freeze({ help: "boolean", json: "boolean", version: "boolean", out: "value", file: "value" } as const);
+/** Retains input identity across the synchronous parser's refusal boundary. */
+export class InputValidationError extends TypeError {
+  readonly issue: Issue;
+  constructor(label: string, path: readonly string[]) {
+    super(`Missing required ${label}.`);
+    this.issue = Object.freeze({ code: "invalid_value", message: this.message, path: Object.freeze([...path]) });
+  }
+}
 export function checkName(name: string): void {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) throw new TypeError("Invalid name spelling.");
 }
@@ -179,22 +188,23 @@ export function checkCaller(model: InputModel, caller: object, suggestion: boole
   const resultArgs: Record<string, string | number | boolean | readonly (string | number | boolean)[]> = Object.create(null);
   const resultFlags: typeof resultArgs = Object.create(null); const globals: typeof resultArgs = Object.create(null);
   const sources: InputSource[] = []; const credentials: { name: string; env: string; global: boolean; required: boolean }[] = [];
-  const resolveValue = (definition: Argument | ModelFlag, raw: unknown, required: boolean): string | number | boolean | readonly (string | number | boolean)[] | undefined => {
+  const resolveValue = (definition: Argument | ModelFlag, raw: unknown, required: boolean, label: string, path: readonly string[]): string | number | boolean | readonly (string | number | boolean)[] | undefined => {
     const many = (definition as Flag).repeatable || (definition as Argument).variadic;
     if (raw === undefined) {
       if (definition.default !== undefined) return scalar(definition.value, definition.default);
-      if (required) throw new TypeError("Missing required input.");
+      if (required) throw new InputValidationError(label, path);
       return many ? [] : undefined;
     }
     if (many) {
-      if (!Array.isArray(raw) || required && raw.length === 0) throw new TypeError("Expected repeated input array.");
+      if (!Array.isArray(raw)) throw new TypeError("Expected repeated input array.");
+      if (required && raw.length === 0) throw new InputValidationError(label, path);
       return raw.map(item => scalar(definition.value, item));
     }
     return scalar(definition.value, raw);
   };
   assertFields(suppliedArgs, [], model.spec.args.map(a => a.name));
   for (const arg of model.spec.args) {
-    const resolved = resolveValue(arg, Object.hasOwn(suppliedArgs, arg.name) ? suppliedArgs[arg.name] : undefined, arg.required !== false && arg.default === undefined);
+    const resolved = resolveValue(arg, Object.hasOwn(suppliedArgs, arg.name) ? suppliedArgs[arg.name] : undefined, arg.required !== false && arg.default === undefined, `argument <${arg.name}>`, ["args", arg.name]);
     if (resolved !== undefined) resultArgs[arg.name] = resolved;
     if (arg.value.kind === "file" && typeof resolved === "string") sources.push({ kind: "argument", name: arg.name, path: resolved, maxBytes: arg.value.maxBytes });
   }
@@ -212,12 +222,13 @@ export function checkCaller(model: InputModel, caller: object, suggestion: boole
     if (raw === undefined && def.credential) {
       credentials.push({ name, env: def.credential.env, global: entry.global, required: def.required === true }); continue;
     }
-    const resolved = resolveValue(def, raw, def.required === true);
+    const resolved = resolveValue(def, raw, def.required === true, `flag --${name}${def.fileSource ? ` (or --${name}-file)` : ""}`, [entry.global ? "globals" : "flags", name]);
     if (resolved !== undefined) target[name] = resolved;
     if (def.value.kind === "file" && typeof resolved === "string") sources.push({ kind: entry.global ? "global" : "flag", name, path: resolved, maxBytes: def.value.maxBytes });
   }
   const extra: { file?: string; level?: string; out?: string; passthrough?: readonly string[] } = {};
   if (model.spec.payload) {
+    if (input["file"] === undefined) throw new InputValidationError("payload file --file", ["file"]);
     extra.file = scalar({ kind: "file", maxBytes: model.spec.payload.maxBytes }, input["file"]) as string;
     sources.push({ kind: "payload", name: "file", path: extra.file, maxBytes: model.spec.payload.maxBytes });
   } else if (input["file"] !== undefined) throw new TypeError("Unexpected payload file.");

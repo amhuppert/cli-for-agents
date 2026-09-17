@@ -1,7 +1,7 @@
 import type { Command, CommandSpec } from "../commands.js";
 import type { Brand } from "./brand.js";
 import type { Flag } from "../input.js";
-import type { ContractViolation, ErrorDefinitions, FamilyCode } from "../results.js";
+import type { Issue, ErrorDefinitions, FamilyCode } from "../results.js";
 import type { CliOptions } from "../runtime/index.js";
 import { parseTokens } from "./parser.js";
 import type { CheckedInput } from "./input-model.js";
@@ -10,7 +10,7 @@ import { invocationTarget, invocationArgv, markRegistered, makeInvocation, refer
 import { assertIdentifier, assertInvocation, assertSerializedLimit, assertText, frozenJson, serializedJson } from "./validation.js";
 import { protocolLimits } from "../results.js";
 import type { InputModel } from "./input-model.js";
-import { scalar } from "./input-model.js";
+import { InputValidationError, scalar } from "./input-model.js";
 
 /** Owns the graph, family identity, doctor, input inventories and reference shapes. */
 export type Registry<Contexts = never, Code extends string = string, G extends Readonly<Record<string, Flag>> = {}> = Brand<"Registry", {
@@ -27,7 +27,7 @@ export type ParsedInvocation<Contexts = never, Code extends string = string, G e
 export type Resolution<Contexts = never, Code extends string = string, G extends Readonly<Record<string, Flag>> = {}> =
   | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string; readonly json: boolean }
   | { readonly kind: "leaf"; readonly invocation: ParsedInvocation<Contexts, Code, G> }
-  | { readonly kind: "invalid"; readonly issues: readonly ContractViolation[]; readonly json: boolean };
+  | { readonly kind: "invalid"; readonly issues: readonly Issue[]; readonly json: boolean };
 /** Synchronous graph/shape validation only, including docs root/reference syntax. */
 export function register<Contexts, D extends ErrorDefinitions, G extends Readonly<Record<string, Flag>>>(
   options: CliOptions<Contexts, D, G>,
@@ -104,7 +104,7 @@ export function resolve<Contexts, Code extends string, G extends Readonly<Record
     return { kind: "leaf", invocation };
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
-    return { kind: "invalid", json, issues: [{ code: "invalid_value", message: error.message, paths: [""] }] };
+    return { kind: "invalid", json, issues: [error instanceof InputValidationError ? error.issue : { code: "invalid_value", message: error.message }] };
   }
 }
 const parsedTokens = new WeakSet<object>();
