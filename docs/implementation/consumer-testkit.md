@@ -7,8 +7,8 @@
 `nodeHost()` and in-memory `createTestHost()` capabilities. Omit contexts to retain
 real providers; supply the complete bound map to substitute concrete services for
 one invocation. Services may use real stores or
-transport. Overrides do not replace the original CLI's providers. Invocation tokens
-retain membership checks and canonical argv derivation. Format selection respects
+transport. Overrides do not replace the original CLI's providers. Invocations are
+rebound against the CLI's registry before argv derivation. Format selection respects
 already-selected JSON; contradictory/duplicate flags still use canonical parsing.
 No handler is rerun to capture a second format.
 
@@ -53,7 +53,7 @@ named contract assertion failures.
 | --- | --- |
 | `offline-paths` | Help throughout the registry, version, catalog and usage refusal; no handler load/context acquisition; bounded output. |
 | `schema-issue-survival` | Invalid Standard Schema payload; exact issue message/path in JSON and message in text; exit 2 before context acquisition. |
-| `single-guidance-arbitration` | Different handler/authoritative instructions; exactly one arbitration and one conflict retaining both instructions, firing evidence, stop instruction and exit 1. |
+| `single-guidance-arbitration` | Different handler/rule instructions; exactly one arbitration and one conflict retaining both instructions, firing evidence, stop instruction and exit 1. |
 | `unknown-totals` | Inline truncated page; unknown total without invented count, exact returned count and read continuation. |
 | `shell-safe-references` | Delivered hint and rendered invocation; independent shell-subset decoding preserves original tokens and rejects expansion/operators, unquoted reserved words and assignment-like executables. |
 | `unicode-spill` | Inline JSON at the exact byte bound and one astral character over it; code-unit length fits while UTF-8 exceeds the bound; manifest and full artifact bytes match the original response. |

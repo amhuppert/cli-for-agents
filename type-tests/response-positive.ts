@@ -23,10 +23,10 @@ accepts<SecondaryFailure>({ code: "KERNEL_RELEASE", message: "Release failed" })
 accepts<"connection">(kernelErrors.KERNEL_CONTEXT.exitClass);
 accepts<8192>(protocolLimits.minimumOutput);
 const rule = defineSteering<{}>({ id: "stop", appliesTo: [command], when: () => true, tier: "instruction", render: () => instruction("policy", "Wait for review.") });
-const evaluation = evaluateGuidance({ authority: "server", command, state: {}, rules: [rule], eventSink: event => { accepts<"guidance.rule_fired">(event.type); } });
+const evaluation = evaluateGuidance({ command, state: {}, rules: [rule], eventSink: event => { accepts<"guidance.rule_fired">(event.type); } });
 accepts<Promise<EvaluatedGuidance>>(evaluation);
 declare const batch: EvaluatedGuidance;
 accepts<readonly GuidanceCandidate[]>(batch.candidates);
-const input: ArbitrationInput = { commandPath: "read", handler: { instruction: instruction("handler", "Wait.") }, candidates: [batch], conflictSink: event => { accepts<"guidance.conflict">(event.type); } };
+const input: ArbitrationInput = { commandPath: "read", handler: { instruction: instruction("handler", "Wait.") }, evaluated: batch, conflictSink: event => { accepts<"guidance.conflict">(event.type); } };
 arbitrate(input);
 accepts<AnyResult>({ ok: true, data: null, issues: batch.issues });

@@ -6,12 +6,9 @@ import type { ResolvedArtifactPolicy } from "../disclosure.js";
 import type { Flag } from "../input.js";
 import type { Sha256 } from "../values.js";
 import type { Brand } from "./brand.js";
-import { checkResolvedArtifactPolicy } from "./artifacts.js";
-import { checkParsedInvocation } from "./registry.js";
 import { commandErrors } from "./declarations.js";
-import { executableRecord, captureExecutable, primaryRenderer, selectRunner } from "./runner-modules.js";
+import { executableRecord, primaryRenderer, selectRunner } from "./runner-modules.js";
 import { checkedResult, checkedWrite, observeWrite, checkedPreparation } from "./execution-reports.js";
-import { preparationScope, mintPreparation, usePreparation } from "./preparations.js";
 import { assertFields, frozenJson } from "./validation.js";
 import type { AnyResult, OperationEffect, KernelCode } from "../results.js";
 import type { JsonValue } from "../values.js";
@@ -25,15 +22,17 @@ export type ExecutionResult<Code extends string = string> = OperationOutcome<Cod
    * summary) only. Response calls this after release; artifact-delivery bounds the assembled output.
    * Default structural rendering uses the same seam; throws are secondary output failures. */
   readonly renderPrimary: () => string;
+  /** Help, version and exit-code text is framework output, not a handler primary. */
+  readonly offline: boolean;
 };
 /** Uses only registry path and the already-computed payload hash; no durable ID is invented. */
 export function unknownAcknowledgment<Contexts, Code extends string, G extends Readonly<Record<string, Flag>>>(invocation: ParsedInvocation<Contexts, Code, G>, payloadHash?: Sha256): UnknownAcknowledgment {
-  checkParsedInvocation(invocation);
   return unknownAcknowledgmentFact(invocation.command.spec.path, payloadHash);
 }
 /** Hook facts must be detached from app before the finalizer; delivery is host-only. */
 export type PostOperationFacts = {
-  readonly guidance: readonly EvaluatedGuidance[];
+  /** Missing when no guidance is configured or the provider failed. */
+  readonly guidance?: EvaluatedGuidance;
   /** Missing when policy resolution fails; collected guidance still survives. */
   readonly artifacts?: ResolvedArtifactPolicy;
   readonly issues: readonly Issue[];
@@ -61,28 +60,18 @@ class ContractFailure extends Error {}
 function failure(code: KernelCode, issues?: readonly Issue[]): AnyResult {
   return Object.freeze({ ok: false, error: kernelError(code, { message: kernelErrors[code].description, ...(issues ? { issues } : {}) }) });
 }
-function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => ""): ExecutionResult {
+function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => "", offline = false): ExecutionResult {
   if (result.ok && operation.effect !== "read" && operation.effect !== "applied") throw new TypeError("Invalid successful effect.");
   // Result/effect correlation is checked at this sole execution provenance boundary.
-  return Object.freeze({ result, operation: Object.freeze(operation), renderPrimary }) as ExecutionResult;
-}
-// Only the offline constructor grants this origin; handler DTO fields cannot
-// opt out of the response owner's primary-renderer protocol restrictions.
-const offlineExecutions = new WeakSet<object>();
-export function isOfflineExecution(execution: ExecutionResult): boolean {
-  return offlineExecutions.has(execution);
+  return Object.freeze({ result, operation: Object.freeze(operation), renderPrimary, offline }) as ExecutionResult;
 }
 /** Composition may repair optional references while preserving the observed operation. */
 export function withExecutionResult(execution: ExecutionResult, result: AnyResult): ExecutionResult {
-  const retained = outcome(result, execution.operation, execution.renderPrimary);
-  if (isOfflineExecution(execution)) offlineExecutions.add(retained);
-  return retained;
+  return outcome(result, execution.operation, execution.renderPrimary, execution.offline);
 }
 /** Offline routes have no application operation; reuse the execution outcome owner. */
 export function offlineExecution(data: JsonValue, render: () => string): ExecutionResult {
-  const execution = outcome({ ok: true, data: frozenJson(data) }, { effect: "read" }, render);
-  offlineExecutions.add(execution);
-  return execution;
+  return outcome({ ok: true, data: frozenJson(data) }, { effect: "read" }, render, true);
 }
 export function usageExecution(issues: readonly Issue[]): ExecutionResult {
   // Parser explanations can include a large registry inventory. Optional prose
@@ -93,25 +82,10 @@ export function usageExecution(issues: readonly Issue[]): ExecutionResult {
   return outcome(result, { effect: "read" });
 }
 function secondary(code: KernelCode): SecondaryFailure { return Object.freeze({ code, message: kernelErrors[code].description }); }
-/** Find the nearest property without invoking getters or bypassing a shadowing accessor. */
-function acquisitionProperty(value: object, key: string): PropertyDescriptor | undefined {
-  const visited = new Set<object>();
-  let current: object | null = value;
-  while (current !== null) {
-    if (visited.has(current)) throw new TypeError("Cyclic acquisition prototype.");
-    visited.add(current);
-    const descriptor = Object.getOwnPropertyDescriptor(current, key);
-    if (descriptor) return descriptor;
-    current = Object.getPrototypeOf(current) as object | null;
-  }
-  return undefined;
-}
 export async function execute<Contexts, D extends ErrorDefinitions, G extends Readonly<Record<string, Flag>>>(
   invocation: ParsedInvocation<Contexts, FamilyCode<D>, G>, request: ResolvedRunRequest,
   contexts: ContextProviders<Contexts, D, G>, postOperation: PostOperationHook<Contexts>,
 ): Promise<CompletedExecution<FamilyCode<D>>> {
-  // Reject foreign/copy tokens before consulting their claimed command metadata.
-  checkParsedInvocation(invocation);
   const spec = invocation.command.spec;
   const initial: OperationEffect = { effect: spec.effects === "write" && !invocation.validation ? "not_applied" : "read" };
   const errors = commandErrors(invocation.command);
@@ -141,26 +115,15 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
     } catch { return skipped(failure(request.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_CONTEXT")); }
     try {
       if (providerValue === null || typeof providerValue !== "object") throw new TypeError("Invalid acquisition result.");
-      const releaseProperty = acquisitionProperty(providerValue, "release");
-      const finalize: unknown = releaseProperty?.value;
-      // Arm cleanup before enumerating metadata or requiring app. A class method or
-      // non-enumerable release is still available when the rest of the result is invalid.
-      if (acquisitionProperty(providerValue, "ok")?.value === true && typeof finalize === "function") {
-        release = () => Reflect.apply(finalize, providerValue, []);
-      }
-      const captured = captureExecutable(providerValue, ["release"]);
-      const acquired = captured.fields;
-      if (acquired["ok"] === false) {
-        if (!captured.valid || releaseProperty) throw new TypeError("Invalid acquisition properties.");
-        assertFields(acquired, ["ok", "error"]);
-        return skipped({ ok: false, error: checkedError(acquired["error"], errors) });
-      }
-      if (acquired["ok"] !== true || !Object.hasOwn(acquired, "app")) throw new TypeError("Invalid acquisition result.");
-      if (!captured.valid) throw new TypeError("Invalid acquisition properties.");
-      assertFields(acquired, ["ok", "app"]);
-      if (releaseProperty && (!("value" in releaseProperty) || finalize !== undefined && typeof finalize !== "function")) throw new TypeError("Invalid finalizer.");
+      const acquired = providerValue as { readonly ok?: unknown; readonly app?: unknown; readonly error?: unknown; readonly release?: unknown };
+      // Arm cleanup before requiring app, so a malformed result is still released.
+      const finalize = acquired.release;
+      if (acquired.ok === true && typeof finalize === "function") release = () => Reflect.apply(finalize, providerValue, []);
+      if (acquired.ok === false) return skipped({ ok: false, error: checkedError(acquired.error, errors) });
+      if (acquired.ok !== true || !("app" in acquired)) throw new TypeError("Invalid acquisition result.");
+      if (finalize !== undefined && typeof finalize !== "function") throw new TypeError("Invalid finalizer.");
       selected = { requires: spec.requires as keyof Contexts & string,
-        app: acquired["app"] as Contexts[keyof Contexts & string] } as SelectedContext<Contexts>;
+        app: acquired.app as Contexts[keyof Contexts & string] } as SelectedContext<Contexts>;
     } catch {
       const failures: SecondaryFailure[] = [];
       if (release) { try { recordTestEvent(request.signal, { type: "context.release", commandPath: spec.path }); await release(); } catch { failures.push(secondary("KERNEL_RELEASE")); } }
@@ -192,23 +155,19 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
         request.signal.throwIfAborted();
         const hash = local.input.payloadHash;
         if (!hash) throw new ContractFailure();
-        const scope = preparationScope(invocation.command, hash);
-        const prepared = mintPreparation(scope, preparation.value);
+        const prepared = Object.freeze({ value: preparation.value, payloadHash: hash });
         // The checked mutation wrapper retains the actual commit runner/renderer pairing.
         run = local.input.module["commit"] as (input: unknown) => Promise<unknown>;
-        returned = await usePreparation(scope, prepared, hash, async token => {
-          operation = unknownEffect!;
-          return run(Object.freeze({ ...input, prepared: token }));
-        });
+        operation = unknownEffect!;
+        returned = await run(Object.freeze({ ...input, prepared }));
         writeReport = true;
       }
     }
     try {
       if (writeReport) {
-        const report = captureExecutable(returned);
-        operation = observeWrite(report.fields, operation);
-        if (!report.valid) throw new TypeError("Invalid commit report properties.");
-        result = checkedWrite(report.fields, operation, errors, spec.output === "binary");
+        const report = executableRecord(returned);
+        operation = observeWrite(report, operation);
+        result = checkedWrite(report, operation, errors, spec.output === "binary");
       } else result = checkedResult(returned, errors, spec.output === "binary");
       const data: JsonValue | undefined = result.ok && result.binary ? result.binary.summary : result.data;
       render = primaryRenderer(run, data);
@@ -223,13 +182,13 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       env: request.env, host: request.host, signal: request.signal }) as PostOperationContext<Contexts>;
     const returned = await postOperation(hookInput);
     const captured = executableRecord(returned);
-    assertFields(captured, ["guidance", "issues"], ["artifacts"]);
-    if (!Array.isArray(captured["guidance"]) || !Array.isArray(captured["issues"])) throw new TypeError("Invalid post-operation facts.");
-    const artifacts = captured["artifacts"];
-    if (artifacts !== undefined) checkResolvedArtifactPolicy(artifacts);
-    // Candidate/diagnostic DTOs are detached, but the checked host-only policy
-    // retains its owner's identity. JSON cloning it would invalidate delivery.
-    facts = Object.freeze({ guidance: frozenJson(returned.guidance), issues: frozenJson(returned.issues),
+    assertFields(captured, ["issues"], ["guidance", "artifacts"]);
+    const guidance = captured["guidance"] as EvaluatedGuidance | undefined;
+    if (!Array.isArray(captured["issues"]) || guidance !== undefined && (typeof guidance !== "object" || guidance === null || Array.isArray(guidance))) {
+      throw new TypeError("Invalid post-operation facts.");
+    }
+    const artifacts = captured["artifacts"] as ResolvedArtifactPolicy | undefined;
+    facts = Object.freeze({ issues: frozenJson(returned.issues), ...(guidance !== undefined ? { guidance: frozenJson(guidance) } : {}),
       ...(artifacts !== undefined ? { artifacts } : {}) });
   } catch {
     facts = undefined;

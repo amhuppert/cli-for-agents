@@ -365,10 +365,3 @@ function assertWireEnum(value: unknown, choices: readonly string[]): void {
   if (typeof value !== "string" || !choices.includes(value)) throw new TypeError("Invalid wire discriminant.");
 }
 
-/** Describes checks to inherit later; these cases are not implemented in this scaffold. */
-export type ContractViolation = {
-  readonly code: "duplicate_path" | "missing_parent" | "dangling_reference" | "flag_conflict"
-    | "reserved_flag" | "invalid_example" | "invalid_payload_twin" | "invalid_rule" | "invalid_value";
-  readonly message: string;
-  readonly paths: NonEmpty<string>;
-};

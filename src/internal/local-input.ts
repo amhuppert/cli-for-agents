@@ -1,6 +1,5 @@
 import { recordTestEvent } from "./test-observation.js";
 import type { ParsedInvocation } from "./registry.js";
-import { checkParsedInvocation } from "./registry.js";
 import type { InputFileSource, ResolvedRunRequest } from "../runtime/index.js";
 import type { CheckedInput } from "./input-model.js";
 import { scalar } from "./input-model.js";
@@ -43,7 +42,6 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
 ): Promise<LocalResolution> {
   let phase: KernelCode = "KERNEL_CONTRACT";
   try {
-    checkParsedInvocation(invocation);
     const { input, command } = invocation;
     const { model, handler } = commandData(command);
     const args = { ...input.args }; const flags = { ...input.flags }; const globals = { ...input.globals };
@@ -82,12 +80,8 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
     recordTestEvent(request.signal, { type: "handler.load", commandPath: command.spec.path });
     const loaded: unknown = await handler();
     request.signal.throwIfAborted();
-    if (loaded === null || typeof loaded !== "object") throw new TypeError("Expected a lazy module namespace.");
-    // ESM namespaces include Symbol.toStringTag and may have unrelated named exports.
-    // Capture only the declared default export, without invoking arbitrary getters.
-    const exported = Object.getOwnPropertyDescriptor(loaded, "default");
-    if (!exported?.enumerable || !("value" in exported)) throw new TypeError("Missing lazy default export.");
-    const defaultExport: unknown = exported.value;
+    if (loaded === null || typeof loaded !== "object" || !("default" in loaded)) throw new TypeError("Expected a lazy module with a default export.");
+    const defaultExport: unknown = loaded.default;
     let module: Readonly<Record<string, unknown>>; let decoder: LazyPayload | undefined;
     if (model.spec.payload) {
       decoder = payloadModule(defaultExport, model.spec.effects);

@@ -6,8 +6,8 @@ import type { CliOptions } from "../runtime/index.js";
 import { parseTokens } from "./parser.js";
 import type { CheckedInput } from "./input-model.js";
 import { commandData, checkFamily, checkGroup, flowSteps } from "./declarations.js";
-import { invocationTarget, invocationArgv, markRegistered, makeInvocation, referenceTokens, hasInvocationProvenance } from "./invocations.js";
-import { assertIdentifier, assertInvocation, assertSerializedLimit, assertText, frozenJson, serializedJson } from "./validation.js";
+import { invocationArgv, makeInvocation, referenceTokens } from "./invocations.js";
+import { assertInvocation, assertSerializedLimit, assertText, frozenJson, serializedJson } from "./validation.js";
 import { protocolLimits } from "../results.js";
 import type { InputModel } from "./input-model.js";
 import { InputValidationError, scalar } from "./input-model.js";
@@ -34,7 +34,6 @@ export function register<Contexts, D extends ErrorDefinitions, G extends Readonl
 ): Registry<Contexts, FamilyCode<D>, G> {
   checkFamily(options.family);
   assertText(options.name); assertText(options.version);
-  if (options.errors !== undefined || options.application !== undefined) throw new TypeError("Obsolete CLI configuration.");
   if (!options.contexts || typeof options.contexts !== "object" || Object.hasOwn(options.contexts, "none")) throw new TypeError("Invalid context providers.");
   for (const provider of Object.values(options.contexts)) if (typeof provider !== "function") throw new TypeError("Invalid context provider.");
   if (!options.output || !options.output.artifacts) throw new TypeError("Explicit artifact policy is required.");
@@ -72,18 +71,15 @@ export function register<Contexts, D extends ErrorDefinitions, G extends Readonl
     if (flowIds.has(flow.id)) throw new TypeError("Duplicate flow id."); flowIds.add(flow.id);
     for (const step of flowSteps(flow)) if (!tokens.has(step.command)) throw new TypeError("Flow references nonmember command.");
   }
-  if (!options.doctor) throw new TypeError("Missing runnable read doctor invocation.");
-  const doctorTarget = invocationTarget(options.doctor);
-  if (!tokens.has(doctorTarget.command) || options.doctor.effects !== "read" || !nodes[options.doctor.path]) throw new TypeError("Doctor must be a member read invocation.");
+  if (!options.doctor || typeof options.doctor !== "object") throw new TypeError("Missing runnable read doctor invocation.");
+  assertInvocation(options.doctor);
+  if (options.doctor.effects !== "read" || !nodes[options.doctor.path]?.command) throw new TypeError("Doctor must be a member read invocation.");
   const parsedDoctor = parseTokens(nodes, invocationArgv(options.doctor));
-  if (parsedDoctor.kind !== "leaf" || parsedDoctor.node !== nodes[options.doctor.path]
-    || parsedDoctor.node.command !== doctorTarget.command
-    || (parsedDoctor.node.kind === "validation") !== doctorTarget.validation) {
+  if (parsedDoctor.kind !== "leaf" || parsedDoctor.node !== nodes[options.doctor.path]) {
     throw new TypeError("Doctor invocation does not resolve to its registered target.");
   }
   assertSerializedLimit({ doctor: options.doctor }, protocolLimits.references);
   const registry = Object.freeze({}) as Registry<Contexts, FamilyCode<D>, G>;
-  for (const command of tokens) markRegistered(command);
   registryStates.set(registry, Object.freeze({ name: options.name, version: options.version, nodes: Object.freeze(nodes), tokens }));
   return registry;
 }
@@ -100,18 +96,12 @@ export function resolve<Contexts, Code extends string, G extends Readonly<Record
     const invocation = Object.freeze({ command, input: resolved.input,
       path: resolved.node.path, validation: resolved.node.kind === "validation", json: resolved.json,
     }) as ParsedInvocation<Contexts, Code, G>;
-    parsedTokens.add(invocation);
     return { kind: "leaf", invocation };
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
     return { kind: "invalid", json, issues: [error instanceof InputValidationError ? error.issue : { code: "invalid_value", message: error.message }] };
   }
 }
-const parsedTokens = new WeakSet<object>();
-export function checkParsedInvocation(invocation: object): void {
-  if (!parsedTokens.has(invocation)) throw new TypeError("Unknown parsed invocation token.");
-}
-
 /** Static projections and lazy binding lookup for help, execution and composition. */
 export type RegistryNode = {
   readonly path: string; readonly kind: "root" | "group" | "command" | "validation";
@@ -163,19 +153,6 @@ export function cliRegistry<Contexts>(cli: import("../runtime/index.js").Cli<Con
   return registry as Registry<Contexts>;
 }
 
-/** Lazy guidance calls this after loading rules; registration never imports them. */
-export function checkRuleReferences(registry: object, rules: readonly { readonly id: string; readonly appliesTo: readonly object[] }[]): void {
-  registryState(registry);
-  if (!Array.isArray(rules)) throw new TypeError("Expected rule reference inventory.");
-  const ids = new Set<string>();
-  for (const rule of rules) {
-    assertIdentifier(rule.id);
-    if (ids.has(rule.id)) throw new TypeError("Duplicate rule id."); ids.add(rule.id);
-    if (!Array.isArray(rule.appliesTo) || !rule.appliesTo.length) throw new TypeError("Missing rule references.");
-    for (const command of rule.appliesTo) checkMembership(registry, command);
-  }
-}
-
 /** Composition retrieves retained configuration only after checking the CLI token. */
 export function cliConfiguration<Contexts>(cli: import("../runtime/index.js").Cli<Contexts>): CliOptions<Contexts, ErrorDefinitions, Readonly<Record<string, Flag>>> {
   const options = cliConfigurations.get(cli);
@@ -185,21 +162,8 @@ export function cliConfiguration<Contexts>(cli: import("../runtime/index.js").Cl
   return options as CliOptions<Contexts, ErrorDefinitions, Readonly<Record<string, Flag>>>;
 }
 
-/** Current-CLI validation is required even when a target is registered elsewhere. */
-export function validateInvocation(registry: object, reference: import("../commands.js").Invocation): void {
-  const target = invocationTarget(reference);
-  checkMembership(registry, target.command);
-  const node = registryState(registry).nodes[reference.path];
-  if (!node || node.command !== target.command || (node.kind === "validation") !== target.validation) throw new TypeError("Invocation does not match its registry target.");
-}
-/** Detached JSON references regain provenance only through complete input validation. */
+/** References are plain JSON; they become runnable here through complete input validation. */
 export function rebindInvocation(registry: object, value: unknown): import("../commands.js").Invocation {
-  // Live references must retain their original family membership, even if another
-  // registry happens to install an identically spelled command.
-  if (typeof value === "object" && value !== null && hasInvocationProvenance(value)) {
-    const reference = value as import("../commands.js").Invocation;
-    validateInvocation(registry, reference); return reference;
-  }
   const reference = frozenJson(value); assertInvocation(reference);
   const state = registryState(registry); const node = state.nodes[reference.path];
   if (!node?.model || !node.command) throw new TypeError("Unknown invocation target.");

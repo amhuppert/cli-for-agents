@@ -38,9 +38,8 @@ for (const [name, configure, error] of [
   ["foreign family", x => ({ commands: [x.doctor, family().defineCommand(spec("other"), binding)] }), /family/i],
   ["forged command", x => ({ commands: [x.doctor, { ...x.command("other") }] }), /command|family/i],
   ["missing doctor", () => ({ doctor: undefined }), /doctor/i],
-  ["foreign doctor", () => { const x = fixture(); return { doctor: invocation(x.doctor, {}) }; }, /doctor|member/i],
   ["write doctor", x => { const c = x.command("write", { effects: "write" }); return { commands: [x.doctor, c], doctor: invocation(c, {}) }; }, /doctor|read/i],
-  ["forged doctor", x => ({ doctor: { ...x.options.doctor } }), /doctor|invocation/i],
+  ["malformed doctor", x => ({ doctor: { ...x.options.doctor, args: "x" } }), /doctor|invocation|tokens/i],
   ["missing provider", x => ({ commands: [x.doctor, x.command("remote", { requires: "remote" })] }), /context|provider/i],
   ["reserved route", x => ({ commands: [x.doctor, x.command("exit-codes")] }), /reserved/i],
   ["duplicate twin", x => ({ commands: [x.doctor, x.f.defineCommand(spec("write", { effects: "write", payload: { maxBytes: bytes(10), validatePath: "doctor" } }), { ...binding, examples: [{ file: "payload.json", why: "Write" }] })] }), /duplicate/i],
@@ -99,7 +98,7 @@ test("binding snapshots metadata and retains lazy references", () => {
 });
 
 // Internal owners may be exercised directly before public runtime composition exists.
-const { cliRegistry, registryState, checkRuleReferences } = await import("../dist/internal/registry.js");
+const { cliRegistry, registryState } = await import("../dist/internal/registry.js");
 test("one graph derives groups, payload twins, selector and file help inputs", () => {
   const x = fixture({ region: valueFlag({ kind: "enum", values: ["us", "eu"] }, { default: "us" }) });
   const write = x.f.defineCommand(spec("items write", { effects: "write", payload: { maxBytes: bytes(100), validatePath: "items validate" }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) } }), { ...binding, examples: [{ file: "data.json", why: "Write" }] });
@@ -117,14 +116,6 @@ test("one graph derives groups, payload twins, selector and file help inputs", (
   assert.equal(flags.region.help.default, "us");
   assert.deepEqual(graph.nodes["items list"].model.selectors.full, ["context", "full"]);
   assert.ok(Object.isFrozen(graph.nodes));
-});
-
-test("lazy rule references validate membership and identifiers against the same registry", () => {
-  const x = fixture(); const registry = cliRegistry(createCli(x.options));
-  assert.doesNotThrow(() => checkRuleReferences(registry, [{ id: "inspect", appliesTo: [x.doctor] }]));
-  assert.throws(() => checkRuleReferences(registry, [{ id: "inspect", appliesTo: [fixture().doctor] }]), /member/i);
-  assert.throws(() => checkRuleReferences(registry, [{ id: "inspect", appliesTo: [] }]), /reference/i);
-  assert.throws(() => checkRuleReferences(registry, [{ id: "inspect", appliesTo: [x.doctor] }, { id: "inspect", appliesTo: [x.doctor] }]), /duplicate/i);
 });
 
 test("createCli retains configuration without exposing caller mutations", async () => {
@@ -273,13 +264,10 @@ test("offline routes and unknown paths resolve without lazy acquisition", () => 
   for (const tokens of [["items"], ["items", "missing"], ["missing", "--help"], ["items", "missing", "--version"], ["items", "list", "--bogus", "--help"]]) assert.equal(x.parse(tokens).kind, "invalid");
 });
 
-test("parsed invocations retain provenance and immutable input", async () => {
-  const { checkParsedInvocation } = await import("../dist/internal/registry.js");
+test("parsed invocations carry immutable input", () => {
   const x = parseFixture({ flags: { constructor: stringFlag(), text: stringFlag() } });
   const parsed = leaf(x.parse(["items", "list", "--text=checked"]));
   assert.deepEqual(parsed.input.flags, { text: "checked" });
-  assert.doesNotThrow(() => checkParsedInvocation(parsed));
-  assert.throws(() => checkParsedInvocation({ ...parsed }), /parsed invocation/i);
   assert.ok(Object.isFrozen(parsed.input.flags));
 });
 
@@ -399,13 +387,11 @@ test("invocation renderer quotes shell syntax and preserves empty, Unicode and a
   assert.equal(parsed.input.flags.text, "x=y'$(printf INJECTED)");
 });
 
-test("rendering requires a registered target and rejects forged invocation and executable controls", () => {
+test("rendering needs only a well-formed invocation and rejects executable controls", () => {
   const f = family(); const c = f.defineCommand(spec("inspect"), binding); const ref = invocation(c, {});
-  assert.throws(() => renderInvocation(ref, "tool"), /registered|member/i);
-  const cli = createCli({ name: "tool", version: "1", family: f, commands: [c], contexts: {}, doctor: ref, output: { artifacts: { directory: "/tmp/out", forbiddenRoots: [] } } });
-  assert.ok(cli);
   assert.equal(renderInvocation(ref, "tool"), "tool inspect");
-  assert.throws(() => renderInvocation({ ...ref }, "tool"), /invocation/i);
+  assert.equal(renderInvocation(JSON.parse(JSON.stringify(ref)), "tool"), "tool inspect");
+  assert.throws(() => renderInvocation({ ...ref, args: "x" }, "tool"), /invocation|tokens/i);
   for (const executable of ["", "tool\nmalicious", "tool\0suffix", "tool\ud800"]) assert.throws(() => renderInvocation(ref, executable), TypeError);
 });
 
@@ -449,26 +435,17 @@ test("passthrough rendering round-trips tokens and refuses ambiguous leading-das
   assert.throws(() => invocation(x.command, { args: { name: "--help" } }), /positional|dash/i);
 });
 
-test("current-registry membership rejects foreign invocations even when registered elsewhere", async () => {
-  const { validateInvocation } = await import("../dist/internal/registry.js");
-  const a = parseFixture(); const b = parseFixture();
-  const ref = invocation(a.command, {});
-  assert.doesNotThrow(() => validateInvocation(cliRegistry(a.cli), ref));
-  assert.throws(() => validateInvocation(cliRegistry(b.cli), ref), /member/i);
-  assert.throws(() => validateInvocation(cliRegistry(a.cli), { ...ref, path: "doctor" }), /invocation/i);
-});
-
-test("local guidance keeps invocation identity while wire references require registry rebinding", async () => {
-  const { rebindInvocation, validateInvocation } = await import("../dist/internal/registry.js");
+test("wire references are plain JSON and rebind against the current registry", async () => {
+  const { rebindInvocation } = await import("../dist/internal/registry.js");
   const { hint } = await import("cli-for-agents/guidance");
   const x = parseFixture({ flags: { token: stringFlag({ secret: true }), mode: valueFlag({ kind: "integer" }, { default: 2 }) } });
   const ref = invocation(x.command, { flags: { mode: 3 } });
   const guidance = hint(ref, "Inspect items");
   assert.equal(renderInvocation(guidance.invocation, "tool"), "tool items list --mode=3");
   const detached = JSON.parse(JSON.stringify(guidance)).invocation;
-  assert.throws(() => renderInvocation(detached, "tool"), /invocation/i);
+  assert.equal(renderInvocation(detached, "tool"), "tool items list --mode=3");
   const rebound = rebindInvocation(cliRegistry(x.cli), detached);
-  assert.doesNotThrow(() => validateInvocation(cliRegistry(x.cli), rebound));
+  assert.deepEqual(rebound, ref);
   assert.equal(renderInvocation(rebound, "tool"), "tool items list --mode=3");
   for (const invalid of [
     { ...ref, path: "unknown" }, { ...ref, effects: "write" }, { ...ref, flags: { mode: "3" } },
@@ -492,7 +469,7 @@ test("detached reference validation covers files, compound selectors and twin me
   const y = parseFixture({ effects: "write", payload: { maxBytes: bytes(30), validatePath: "items validate" } }, { file: "data.json" });
   const twin = validationInvocation(y.command, { file: "data.json" });
   assert.deepEqual(rebindInvocation(cliRegistry(y.cli), JSON.parse(JSON.stringify(twin))), twin);
-  assert.throws(() => rebindInvocation(cliRegistry(x.cli), twin), /member/i);
+  assert.throws(() => rebindInvocation(cliRegistry(x.cli), twin), /target/i);
 });
 
 test("explicit null caller records are not treated as omitted input", () => {

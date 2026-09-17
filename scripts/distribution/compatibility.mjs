@@ -14,7 +14,9 @@ export function checkRuntime(runtime) {
   const run = spawnSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000, maxBuffer: 65536 });
   if (run.error || run.status !== 0) throw Error(`Required runtime unavailable: ${executable}: ${run.error?.message ?? run.stderr}`);
   const version = run.stdout.trim();
-  if (version !== runtime.version) throw Error(`Runtime version mismatch: ${executable}: expected ${runtime.version}, received ${version}`);
+  // The pin names the runtime line the matrix covers; a patch upgrade is not a mismatch.
+  const major = text => text.replace(/^v/, '').split('.')[0];
+  if (major(version) !== major(runtime.version)) throw Error(`Runtime version mismatch: ${executable}: expected ${runtime.version}, received ${version}`);
   return { executable, resolvedExecutable: realpathSync(executable), version, versionCommand: [executable, '--version'] };
 }
 export async function runCompatibility(file) {

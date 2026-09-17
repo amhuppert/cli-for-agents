@@ -294,7 +294,8 @@ for (const flavor of ["Node", "test"]) {
     assert.equal(getEventListeners(controller.signal, "abort").length, 1);
     if (flavor === "test") host.advance(milliseconds(10));
     await completed;
-    assert.ok(host.now() >= start + 10);
+    // Node timers may fire up to 1ms early relative to Date.now(); the test clock is exact.
+    assert.ok(host.now() >= start + (flavor === "Node" ? 9 : 10));
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
     let woke = false;
     const long = host.sleep(milliseconds(2147483648), controller.signal).then(() => { woke = true; });

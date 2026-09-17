@@ -45,9 +45,9 @@ for (const [name, items, total, more] of [
   });
 }
 
-test("continuation retains real invocation identity, filters, cursor and selected view", () => {
+test("continuation retains filters, cursor and selected view as plain JSON", () => {
   const result = page({ items: [{ id: "a" }], total: known(8), more: true, reveal });
-  assert.equal(result.omission.reveal, reveal);
+  assert.deepEqual(result.omission.reveal, reveal);
   assert.deepEqual(result.omission.reveal.flags, {
     cursor: "next ' page", filter: ["open", "owner:a b"], limit: 2, full: true,
   });
@@ -77,8 +77,7 @@ for (const [name, source, pattern] of [
   ["caller-supplied returned count", { items: [1], total: known(1), more: false, returned: 9 }, /fields|count/i],
   ["missing continuation", { items: [], total: unknown, more: true }, /reveal|continuation|fields/i],
   ["mutating continuation", { items: [], total: unknown, more: true, reveal: invocation(write, {}) }, /read|effect/i],
-  ["forged read continuation", { items: [], total: unknown, more: true, reveal: { ...reveal } }, /forged|invocation/i],
-  ["write disguised as read", { items: [], total: unknown, more: true, reveal: { ...invocation(write, {}), effects: "read" } }, /forged|invocation/i],
+  ["malformed continuation", { items: [], total: unknown, more: true, reveal: { ...reveal, args: "x" } }, /invocation|tokens/i],
   ["continuation on complete page", { items: [], total: unknown, more: false, reveal }, /reveal|continuation|fields/i],
   ["unknown total with count", { items: [], total: { kind: "unknown", count: 0 }, more: false }, /fields|total/i],
   ["known total without count", { items: [], total: { kind: "known" }, more: false }, /fields|total|integer/i],
@@ -93,12 +92,3 @@ for (const [name, source, pattern] of [
 ]) {
   test(`page rejects ${name}`, () => assert.throws(() => page(source), pattern));
 }
-
-test("page refuses lazy dataset access without calling a getter or iterator", () => {
-  let accesses = 0;
-  const source = { get items() { accesses++; return []; }, total: unknown, more: false };
-  assert.throws(() => page(source), /data properties|JSON/i);
-  const dataset = { *[Symbol.iterator]() { accesses++; yield 1; } };
-  assert.throws(() => page({ items: dataset, total: unknown, more: false }), /JSON|array|keys/i);
-  assert.equal(accesses, 0);
-});

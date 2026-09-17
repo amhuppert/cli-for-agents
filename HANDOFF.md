@@ -26,9 +26,9 @@ proposed API spellings are historical.
 - `src/commands.ts`, `input.ts`, `results.ts`, `disclosure.ts`, `values.ts`: public
   authoring and checked values; `internal/declarations`, `input-model`, `registry`,
   `parser`, `invocations`: single declaration derivation and registration.
-- `internal/local-input`, `runner-modules`, `preparations`, `execution`: local
-  decode before acquisition, selected contexts, validated reports and release.
-- `guidance/index.ts`: candidate evaluation/decoding; `internal/response.ts`:
+- `internal/local-input`, `runner-modules`, `execution`: local decode before
+  acquisition, selected contexts, validated reports and release.
+- `guidance/index.ts`: candidate evaluation; `internal/response.ts`:
   sole arbitration, envelope assembly and text projection.
 - `internal/artifacts.ts`: policy and final byte-bound delivery;
   `internal/node-host.ts`: filesystem/clock/hash capabilities;
@@ -39,7 +39,6 @@ proposed API spellings are historical.
   Domain consumers supply all seven fixture callbacks to prove their own services.
 
 The four supported package paths are root, `/runtime`, `/guidance` and `/testing`.
-The unused `internal/stub.ts` is a scaffold fossil, unreachable from all four.
 `examples/notebook` retains intentional compile-only stubs; executable evidence
 comes from `local-workspace` and `remote-service`.
 
@@ -77,7 +76,7 @@ launched check; use CC for git lifecycle actions.
 
 The local pilot proves JSON persistence with fresh readers and receipt recovery;
 it does not prove SQLite or crash recovery. The remote pilot proves loopback HTTP,
-local errors before requests, authoritative guidance and resumable references; its
+local errors before requests, rule guidance and resumable references; its
 service is a test fixture. Preparation purity, durable domain truth, transport
 authentication and event-log durability remain application responsibilities.
 

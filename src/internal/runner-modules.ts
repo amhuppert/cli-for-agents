@@ -1,25 +1,11 @@
 import type { StandardSchema } from "../input.js";
 
-/** Lazy executable objects are captured by descriptors without invoking accessors. */
-export function captureExecutable(value: unknown, separatelyCaptured: readonly string[] = []): { readonly fields: Record<string, unknown>; readonly valid: boolean } {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Expected a lazy module record.");
-  const fields: Record<string, unknown> = Object.create(null); let valid = true;
-  for (const key of Reflect.ownKeys(value)) {
-    // Acquisition captures release independently because methods need not be enumerable.
-    if (typeof key === "string" && separatelyCaptured.includes(key)) continue;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (typeof key !== "string" || !descriptor?.enumerable || !("value" in descriptor)) { valid = false; continue; }
-    fields[key] = descriptor.value;
-  }
-  return { fields, valid };
-}
+/** Application modules are the author's own objects; copy their own fields as they are. */
 export function executableRecord(value: unknown): Record<string, unknown> {
-  const captured = captureExecutable(value);
-  if (!captured.valid) throw new TypeError("Expected executable data properties.");
-  return captured.fields;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Expected a module record.");
+  return { ...value } as Record<string, unknown>;
 }
 export type LazyPayload = { readonly kind: "read" | "write"; readonly decode: StandardSchema<unknown>; readonly handler: Readonly<Record<string, unknown>> };
-const payloadModules = new WeakMap<object, LazyPayload>();
 export function makePayloadModule(handler: unknown, kind: "read" | "write"): object {
   const checked = executableRecord(handler);
   const schema = checked["decode"];
@@ -44,15 +30,13 @@ export function makePayloadModule(handler: unknown, kind: "read" | "write"): obj
   // Version/vendor/function are checked before retaining the erased schema contract.
   const decode = Object.freeze({ "~standard": Object.freeze({ version: 1 as const, vendor,
     validate: validate.bind(protocol) as StandardSchema<unknown>["~standard"]["validate"] }) });
-  const token = Object.freeze({});
-  payloadModules.set(token, Object.freeze({ kind, decode, handler: Object.freeze(checked) }));
-  return token;
+  const module: LazyPayload = Object.freeze({ kind, decode, handler: Object.freeze(checked) });
+  return module;
 }
 export function payloadModule(token: unknown, kind: "read" | "write"): LazyPayload {
-  if (token === null || typeof token !== "object") throw new TypeError("Unknown payload module.");
-  const module = payloadModules.get(token);
-  if (!module || module.kind !== kind) throw new TypeError("Unknown or mismatched payload module.");
-  return module;
+  if (token === null || typeof token !== "object" || !("kind" in token) || token.kind !== kind
+    || !("decode" in token) || !("handler" in token)) throw new TypeError("Unknown or mismatched payload module.");
+  return token as LazyPayload;
 }
 
 type ErasedRunner = (input: unknown) => Promise<unknown>;

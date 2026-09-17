@@ -1,15 +1,10 @@
 import type { Command, Invocation } from "../commands.js";
 import { commandData } from "./declarations.js";
 import { checkCaller } from "./input-model.js";
-import { assertInvocation, assertText, frozenJson, jsonIdentity, retainJsonIdentity } from "./validation.js";
+import { assertInvocation, assertText, frozenJson } from "./validation.js";
 
-const references = new WeakMap<object, { readonly command: object; readonly validation: boolean }>();
-export function invocationTarget(reference: object): { readonly command: object; readonly validation: boolean } {
-  const target = references.get(jsonIdentity(reference));
-  if (!target) throw new TypeError("Unknown or forged invocation token.");
-  return target;
-}
-/** This boundary is also used for createCli's mandatory runnable doctor. */
+/** An invocation is plain JSON. The registry resolves it by path when it is used,
+ * so references survive JSON transport unchanged. Also used for createCli's doctor. */
 export function makeInvocation(command: Pick<Command, "spec" | "globalFlags">, input: object, validation: boolean): Invocation {
   const data = commandData(command);
   const spec = data.model.spec;
@@ -41,22 +36,13 @@ export function makeInvocation(command: Pick<Command, "spec" | "globalFlags">, i
     effects: validation ? "read" : spec.effects, args, flags,
     ...(checked.passthrough !== undefined ? { passthrough: checked.passthrough } : {}) });
   assertInvocation(value);
-  const reference = value as Invocation;
-  references.set(reference, Object.freeze({ command, validation }));
-  retainJsonIdentity(reference);
-  return reference;
+  return value as Invocation;
 }
 
-const registeredCommands = new WeakSet<object>();
-/** Called only after the complete graph has passed register's checks. */
-export function markRegistered(command: object): void {
-  commandData(command); registeredCommands.add(command);
-}
-
-/** argv construction and shell rendering share exactly these token boundaries. */
+/** argv construction and shell rendering share exactly these token boundaries.
+ * A passthrough command always carries its passthrough tokens, possibly empty. */
 export function invocationArgv(reference: Invocation): readonly string[] {
-  const { command } = invocationTarget(reference);
-  return referenceTokens(reference, commandData(command).model.spec.passthrough === true);
+  return referenceTokens(reference, reference.passthrough !== undefined);
 }
 /** Also used after detached reference shape validation at the registry boundary. */
 export function referenceTokens(reference: Pick<Invocation, "path" | "args" | "flags" | "passthrough">, passthrough: boolean): readonly string[] {
@@ -73,14 +59,8 @@ export function referenceTokens(reference: Pick<Invocation, "path" | "args" | "f
   return Object.freeze(tokens);
 }
 
+/** Shape-checked rendering; current-registry rebinding is caller-owned. */
 export function renderReference(reference: Invocation, executable: string): import("../values.js").ShellSafe {
-  const target = invocationTarget(reference);
-  if (!registeredCommands.has(target.command)) throw new TypeError("Invocation target is not registered.");
-  return renderTokens(invocationArgv(reference), executable);
-}
-
-/** Shape-checked detached references; current-registry rebinding is caller-owned. */
-export function renderDetachedReference(reference: Invocation, executable: string): string {
   assertInvocation(reference);
   return renderTokens(referenceTokens(reference, reference.passthrough !== undefined), executable);
 }
@@ -93,8 +73,6 @@ function renderTokens(tokens: readonly string[], executable: string): import("..
   return [quote(executable, executable.includes("=") || reserved.includes(executable)),
     ...tokens.map(token => quote(token))].join(" ") as import("../values.js").ShellSafe;
 }
-
-export function hasInvocationProvenance(value: object): boolean { return references.has(jsonIdentity(value)); }
 
 /** Protect the positional/passthrough boundary before tokens enter the parser. */
 function checkPositionalTokens(args: readonly string[], passthrough: boolean): void {

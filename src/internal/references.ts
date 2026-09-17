@@ -93,7 +93,7 @@ export async function writeReference<Contexts>(cli: Cli<Contexts>, options: Refe
   options.signal.throwIfAborted();
   if (changed && options.mode === "write") {
     if (!host.files.replace) throw new TypeError("Reference write requires a replacement-capable host.");
-    await host.files.replace(options.path, data, original, options.signal);
+    await host.files.replace(options.path, data, options.signal);
   }
   return { ...validation, changed };
 }

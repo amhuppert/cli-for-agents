@@ -246,7 +246,7 @@ test('library reference writer uses the injected host and check never requests r
   let writes = 0;
   let loads = 0;
   const base = createTestHost({ files: { '/docs/guide.md': 'Guide' } });
-  const host = { files: { ...base.files, read: async (_path, limit) => { const data = new TextEncoder().encode(target); assert.ok(data.length <= limit); return data; }, replace: async (_path, data, expected) => { assert.equal(new TextDecoder().decode(expected), target); target = new TextDecoder().decode(data); writes++; } } };
+  const host = { files: { ...base.files, read: async (_path, limit) => { const data = new TextEncoder().encode(target); assert.ok(data.length <= limit); return data; }, replace: async (_path, data) => { target = new TextDecoder().decode(data); writes++; } } };
   const options = { path: '/reference.md', marker: 'COMMAND REFERENCE', mode: 'check', host: async () => { loads++; return host; }, signal: new AbortController().signal };
   const { cli } = fixture();
   assert.deepEqual(await writeCommandReference(cli, options), { ok: true, checked: 1, issues: [], changed: true });
@@ -331,15 +331,15 @@ test('reference replacement preserves document permissions and cleans up staging
   assert.ok(!(await fs.readdir(f.directory)).some(name => name.startsWith('.reference-')));
 });
 
-test('reference replacement refuses stale content and cancellation', async t => {
+test('reference replacement refuses cancellation and symlinked targets without leaving staging', async t => {
   const f = await referenceFixture(t);
   const { createReferenceHost } = await import('../dist/internal/reference-host.js');
   const host = await createReferenceHost();
-  const expected = new TextEncoder().encode(markerDocument());
-  await fs.writeFile(f.target, 'Changed by an editor');
-  await assert.rejects(() => host.files.replace(f.target, expected, expected, new AbortController().signal), /changed/i);
-  assert.equal(await fs.readFile(f.target, 'utf8'), 'Changed by an editor');
-  await assert.rejects(() => host.files.replace(f.target, expected, expected, AbortSignal.abort()), /abort/i);
+  const data = new TextEncoder().encode(markerDocument());
+  await assert.rejects(() => host.files.replace(f.target, data, AbortSignal.abort()), /abort/i);
+  await fs.rename(f.target, join(f.directory, 'real.md'));
+  await fs.symlink('real.md', f.target);
+  await assert.rejects(() => host.files.replace(f.target, data, new AbortController().signal), /symlink|regular file/i);
   assert.ok(!(await fs.readdir(f.directory)).some(name => name.startsWith('.reference-')));
 });
 

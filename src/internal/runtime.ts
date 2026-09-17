@@ -4,11 +4,12 @@ import { nodeHost } from "../runtime/index.js";
 import type { Issue, KernelCode, SecondaryFailure } from "../results.js";
 import { checkedError, kernelErrors } from "../results.js";
 import type { EvaluatedGuidance } from "../guidance/index.js";
-import { decodeEvaluatedGuidance, hint } from "../guidance/index.js";
-import { cliConfiguration, cliRegistry, resolve, checkRuleReferences, rebindInvocation } from "./registry.js";
+import { hint } from "../guidance/index.js";
+import { cliConfiguration, cliRegistry, resolve, rebindInvocation } from "./registry.js";
 import { execute, offlineExecution, usageExecution, withExecutionResult } from "./execution.js";
 import type { ExecutionResult, PostOperationFacts } from "./execution.js";
-import { captureArray, evaluatedRules } from "./guidance-rules.js";
+import { checkEvaluatedGuidance } from "./guidance-rules.js";
+import { frozenJson } from "./validation.js";
 import { renderOffline } from "./help.js";
 import { arbitrate, assembleResponse } from "./response.js";
 import { deliver, resolveArtifactPolicy, validateOutputBudget } from "./artifacts.js";
@@ -19,7 +20,7 @@ const diagnostic = (code: KernelCode): Issue => ({ code, message: kernelErrors[c
 async function collect<Contexts>(registry: object, input: PostOperationContext<Contexts>, source: ArtifactPolicySource<Contexts>,
   load?: () => Promise<{ readonly default: import("../runtime/index.js").GuidanceProvider<Contexts> }>,
 ): Promise<PostOperationFacts> {
-  const guidance: EvaluatedGuidance[] = [];
+  let guidance: EvaluatedGuidance | undefined;
   const issues: Issue[] = [];
   if (load) {
     let provided: unknown;
@@ -27,30 +28,24 @@ async function collect<Contexts>(registry: object, input: PostOperationContext<C
     try { provided = await (await load()).default(input); returned = true; }
     catch { issues.push(diagnostic(input.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_GUIDANCE")); }
     if (returned) {
-      let batches: readonly unknown[] = [];
-      try { batches = Array.isArray(provided) ? captureArray(provided) : [provided]; }
-      catch { issues.push(diagnostic("KERNEL_CONTRACT")); }
-      for (const batch of batches) {
-        try {
-          checkRuleReferences(registry, evaluatedRules(batch));
-          const checked = decodeEvaluatedGuidance(batch);
-          if (checked.commandPath !== input.command.spec.path) throw new TypeError("Wrong guidance command.");
-          const candidates = checked.candidates.filter(candidate => {
-            if (candidate.tier !== "hint") return true;
-            try { rebindInvocation(registry, candidate.value.invocation); return true; }
-            catch { issues.push(diagnostic("KERNEL_CONTRACT")); return false; }
-          });
-          const ids = new Set(candidates.map(candidate => candidate.provenance.ruleId));
-          for (const event of checked.firings) recordTestEvent(input.signal, event);
-          guidance.push(decodeEvaluatedGuidance({ ...checked, candidates, firings: checked.firings.filter(event => ids.has(event.ruleId)) }));
-        } catch { issues.push(diagnostic("KERNEL_CONTRACT")); }
-      }
+      try {
+        const checked = checkEvaluatedGuidance(provided);
+        if (checked.commandPath !== input.command.spec.path) throw new TypeError("Wrong guidance command.");
+        const candidates = checked.candidates.filter(candidate => {
+          if (candidate.tier !== "hint") return true;
+          try { rebindInvocation(registry, candidate.value.invocation); return true; }
+          catch { issues.push(diagnostic("KERNEL_CONTRACT")); return false; }
+        });
+        const ids = new Set(candidates.map(candidate => candidate.provenance.ruleId));
+        for (const event of checked.firings) recordTestEvent(input.signal, event);
+        guidance = frozenJson({ ...checked, candidates, firings: checked.firings.filter(event => ids.has(event.ruleId)) }) as EvaluatedGuidance;
+      } catch { issues.push(diagnostic("KERNEL_CONTRACT")); }
     }
   }
   let artifacts;
   try { artifacts = await resolveArtifactPolicy("resolve" in source ? await source.resolve(input) : source, input.host); }
   catch { issues.push(diagnostic(input.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_OUTPUT")); }
-  return { guidance, issues, ...(artifacts ? { artifacts } : {}) };
+  return { issues, ...(guidance ? { guidance } : {}), ...(artifacts ? { artifacts } : {}) };
 }
 
 /** The public production caller: owners retain parsing, lifetime, arbitration and bounds. */
@@ -104,7 +99,7 @@ export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRe
   recordTestEvent(request.signal, { type: "guidance.arbitrate" });
   const guidance = await arbitrate({ commandPath: resolution.kind === "leaf" ? resolution.invocation.command.spec.path : "",
     handler: result.instruction ? { instruction: result.instruction } : result.hint ? { hint: result.hint } : {},
-    candidates: facts?.guidance ?? [], conflictSink: async event => {
+    ...(facts?.guidance ? { evaluated: facts.guidance } : {}), conflictSink: async event => {
       recordTestEvent(request.signal, event);
       await options.guidance?.conflictSink(event);
     } });

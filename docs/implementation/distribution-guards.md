@@ -20,11 +20,10 @@ inherited cases; the offline case targets its own registry and the other six are
 canonical runtime controls, as documented by the upstream testkit. These are not
 claims about downstream pilot domain/transport behavior.
 
-Lazy bindings explicitly snapshot `(await import('./handler.mjs')).default` into
-`{ default: value }`. esbuild generates accessor-backed namespace exports; the
-runtime deliberately requires executable data properties. Snapshotting at this
-consumer boundary preserves lazy evaluation without weakening that validation.
-The real bundled execution test reproduced KERNEL_CONTRACT before this repair.
+Lazy bindings snapshot `(await import('./handler.mjs')).default` into
+`{ default: value }`. The runtime reads the module's `default` export directly, so
+esbuild's accessor-backed namespaces work either way; the snapshot only keeps the
+consumer's declaration module free of a static handler import.
 
 Run locally through registered validation:
 
@@ -37,8 +36,8 @@ existing emitted dist). `.github/workflows/distribution.yml` provisions all thre
 pinned runtimes before calling `scripts/distribution/ci.sh`, which uses the canonical
 validation wrapper in standalone CI without a CC server. The exact runtime pins
 and local executable defaults live in `scripts/distribution/runtimes.json`.
-Explicit environment overrides allow provisioned CI locations, but versions must
-still match exactly. Missing executables and mismatched versions fail; no skips.
+Explicit environment overrides allow provisioned CI locations; the major version
+must match the pin. Missing executables and mismatched majors fail; no skips.
 CI configuration has been authored here; a hosted Actions run is not claimed.
 
 ## What the guards assert
@@ -52,8 +51,8 @@ and that fixture handlers reach stdout only through public `main`.
 
 ## Startup and size guards
 
-`scripts/distribution/baseline.json` holds a **size budget of 112,640 bytes**
-(110 KiB) for the single-file bundle, including the lazy inherited contract
+`scripts/distribution/baseline.json` holds a **size budget of 104,448 bytes**
+(102 KiB) for the single-file bundle, including the lazy inherited contract
 harness, alongside the measured source/offline module allowlist. The budget is not
 a ratchet: a change that earns its bytes raises the ceiling in that file, as one
 line visible in the diff. Its job is catching gross regressions, not policing
@@ -93,13 +92,13 @@ not declare.
 
 Tests regenerate the import inventory and the bundle measurement on every run
 rather than trusting a checked-in snapshot; `scripts/distribution/baseline.json` is
-the only persisted calibration, with 68 source/offline entries. Empty imports
+the only persisted calibration, with 64 source/offline entries. Empty imports
 and inline `type` specifiers retain side-effect edges under verbatimModuleSyntax;
 only declaration-level `import type`/`export type` erases them. Both missing-edge
 cases failed before repair. A real deliberately eager `node:os` offline trace fails
 the allowlist check.
 
-## Compatibility and advisory idle measurement
+## Compatibility
 
 `scripts/distribution/compatibility.mjs` performs 42 actual executions, not
 availability checks: seven requests against emitted ESM and against the single-file
@@ -108,26 +107,15 @@ Each form executes inspect, all seven inherited contract cases, root and command
 help, version, exit-codes and a parse refusal; versions and exact argument arrays
 land in the generated report. Consumer bundle paths are scratch files removed after
 the run. Required-runtime checks reject a missing executable or a mismatched
-version, and a negative fixture proves each refusal — nothing is ever skipped.
+major version, and a negative fixture proves each refusal — nothing is ever skipped.
 Hosted CI provisions the equivalent exact versions, runs these same tests and
 uploads the generated JSON as a workflow artifact.
-
-`scripts/distribution/idle.mjs` measures nine fresh-process pairs per Node version
-after one discarded warmup pair. Each pair runs an empty Node process (`node -e ''`)
-and the same runtime executing the bundled CLI's `--version` path, alternating order
-to reduce order bias, with the compile cache disabled. The reported median of paired
-differences is computed per pair, so it need not equal the difference of the two
-separate medians. Elapsed time includes process launch, module initialization and
-host contention; this is not a cold-disk experiment. Timings are advisory: **there
-is no timing gate**, and a synthetic slow-sample control proves the summary accepts
-slow timings. Process failures and missing compatibility runtimes still fail.
 
 Reusable script entry points (the test imports the same functions):
 
 ```
 node scripts/distribution/bundle.mjs .cc/temp/distribution/manual
 node scripts/distribution/compatibility.mjs .cc/temp/distribution/manual/consumer.mjs .cc/temp/distribution/manual-compatibility.json
-node scripts/distribution/idle.mjs .cc/temp/distribution/manual/consumer.mjs .cc/temp/distribution/manual-idle.json
 ```
 
 These assume emitted dist exists. Within CC, run the registered exact-file test

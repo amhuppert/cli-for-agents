@@ -2,7 +2,7 @@ import { errors } from './commands.mjs';
 
 // Application-owned transport is evaluated only after local input validation.
 export async function acquire({ globals, signal }) {
-  const app = { guidance: undefined, globals, async request(path, body) {
+  const app = { globals, async request(path, body) {
     const response = await fetch(new URL(path, globals.server), {
       method: body === undefined ? 'GET' : 'POST', signal,
       headers: { authorization: `Bearer ${globals.token ?? ''}`, 'x-workspace': globals.workspace, 'content-type': 'application/json' },
@@ -10,9 +10,7 @@ export async function acquire({ globals, signal }) {
     });
     if (response.status === 401) throw Object.assign(new Error('Credential rejected'), { code: 'UNAUTHORIZED' });
     if (!response.ok) throw Object.assign(new Error('Request failed'), { code: 'NOT_FOUND' });
-    const value = await response.json();
-    app.guidance = value.guidance;
-    return value.data;
+    return (await response.json()).data;
   } };
   return { ok: true, app };
 }

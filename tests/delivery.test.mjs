@@ -183,7 +183,7 @@ async function fixture(t) {
   await mkdir(directory); await mkdir(forbidden);
   return { root, directory, forbidden, host: await nodeHost() };
 }
-test("policy resolution freezes an app-free canonical snapshot with retention off by default", async t => {
+test("policy resolution freezes an app-free canonical snapshot", async t => {
   const { root, directory, forbidden, host } = await fixture(t);
   await symlink(directory, path.join(root, "alias"));
   let open = true;
@@ -198,14 +198,13 @@ test("policy resolution freezes an app-free canonical snapshot with retention of
   policyInput.forbiddenRoots.length = 0;
   assert.equal(policy.directory, directory);
   assert.deepEqual(policy.forbiddenRoots, [forbidden]);
-  assert.equal(Object.hasOwn(policy, "retention"), false);
   assert.equal(Object.isFrozen(policy), true);
   assert.equal(Object.isFrozen(policy.forbiddenRoots), true);
   assert.deepEqual(Object.keys(policy).sort(), ["directory", "forbiddenRoots"]);
   await writeArtifact(artifactRequest(), policy, host, signal);
   assert.equal(calls, 1);
 });
-test("policy rejects forbidden directories, invalid retention and non-directory roots", async t => {
+test("policy rejects forbidden directories and non-directory roots", async t => {
   const { root, directory, forbidden, host } = await fixture(t);
   await writeFile(path.join(root, "file"), "x");
   for (const input of [
@@ -213,12 +212,8 @@ test("policy rejects forbidden directories, invalid retention and non-directory 
     { directory, forbiddenRoots: [root] },
     { directory: path.join(root, "missing"), forbiddenRoots: [] },
     { directory: path.join(root, "file"), forbiddenRoots: [] },
-    { directory, forbiddenRoots: [], retention: { maxAgeMs: -1 } },
-    { directory, forbiddenRoots: [], retention: { maxAgeMs: Infinity } },
+    { directory, forbiddenRoots: [], retention: { maxAgeMs: 1000 } },
   ]) await assert.rejects(async () => resolveArtifactPolicy(input, host));
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [], retention: { maxAgeMs: 1000 } }, host);
-  assert.equal(policy.retention.maxAgeMs, 1000);
-  assert.equal(Object.isFrozen(policy.retention), true);
 });
 test("atomic manifests report absolute canonical paths and true bytes/hash/content", async t => {
   const { directory, forbidden, host } = await fixture(t);
@@ -290,11 +285,9 @@ test("writer snapshots bytes before awaiting host operations and refuses malform
   assert.equal(host.calls.filter(call => call.kind === "write").length, before);
   assert.equal(host.filesSnapshot()["/artifacts/seed"].length, 4);
 });
-test("untyped callers cannot forge a resolved policy or mutate a retained one", async () => {
+test("resolved policies are immutable", async () => {
   const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const raw = { directory: "/artifacts", forbiddenRoots: [] };
-  await assert.rejects(() => writeArtifact(artifactRequest(), raw, host, signal), /resolved policy/i);
-  const policy = await resolveArtifactPolicy(raw, host);
+  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
   assert.throws(() => { policy.directory = "/outside"; }, TypeError);
   assert.throws(() => { policy.forbiddenRoots.push("/"); }, TypeError);
 });
@@ -310,70 +303,6 @@ test("symlinks inside the allowed directory retain canonical destinations; neste
   assert.deepEqual(await readdir(path.join(directory, "nested")), ["file.json"]);
 });
 
-for (const mode of ["node", "test"]) {
-  test(`${mode} opt-in retention expires old automatic artifacts and preserves explicit/unrelated files`, async t => {
-    const setup = mode === "node" ? await fixture(t) : { directory: "/artifacts", host: createTestHost({ files: { "/artifacts/unrelated": "keep" } }) };
-    let clock = Date.now();
-    const host = { ...setup.host, now: () => clock };
-    const { directory } = setup;
-    if (mode === "node") await writeFile(path.join(directory, "unrelated"), "keep");
-    const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [], retention: { maxAgeMs: 1000 } }, host);
-    const old = await writeArtifact(artifactRequest(), policy, host, signal);
-    const explicit = await writeArtifact(artifactRequest({ out: "saved.json", reason: "explicit_out" }), policy, host, signal);
-    clock += 10000;
-    const fresh = await writeArtifact(artifactRequest({ bytes: new Uint8Array([9]) }), policy, host, signal);
-    assert.equal(await host.files.kind(old.path), "missing", "expired automatic file must be removed");
-    assert.equal(await host.files.kind(explicit.path), "file");
-    assert.equal(await host.files.kind(path.join(directory, "unrelated")), "file");
-    assert.equal(await host.files.kind(fresh.path), "file");
-  });
-}
-test("retention disabled performs no listing or deletion, even for previously managed artifacts", async () => {
-  const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const enabled = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [], retention: { maxAgeMs: 1 } }, host);
-  const old = await writeArtifact(artifactRequest(), enabled, host, signal);
-  host.advance(10000);
-  const disabled = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
-  const before = host.calls.filter(call => call.kind === "retention-list" || call.kind === "retention-remove").length;
-  await writeArtifact(artifactRequest({ bytes: new Uint8Array([1]) }), disabled, host, signal);
-  assert.equal(host.calls.filter(call => call.kind === "retention-list" || call.kind === "retention-remove").length, before);
-  assert.equal(await host.files.kind(old.path), "file");
-});
-test("explicit out adopts an automatic path permanently before subsequent expiration", async () => {
-  const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [], retention: { maxAgeMs: 1 } }, host);
-  const automatic = await writeArtifact(artifactRequest(), policy, host, signal);
-  await writeArtifact(artifactRequest({ out: automatic.path, reason: "explicit_out" }), policy, host, signal);
-  host.advance(10000);
-  await writeArtifact(artifactRequest({ bytes: new Uint8Array([2]) }), policy, host, signal);
-  assert.equal(await host.files.kind(automatic.path), "file");
-});
-test("retention requires host cleanup support instead of silently ignoring maxAgeMs", async () => {
-  const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const unsupported = { ...host, files: { ...host.files, retention: undefined } };
-  await assert.rejects(() => resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [], retention: { maxAgeMs: 1 } }, unsupported), /retention/i);
-});
-test("retention refuses symlinked metadata and leaves replaced or unrelated contents intact", async t => {
-  const { directory, forbidden, host: base } = await fixture(t);
-  let clock = Date.now();
-  const host = { ...base, now: () => clock };
-  const off = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden] }, host);
-  const old = await writeArtifact(artifactRequest(), off, host, signal);
-  const marker = old.path + ".agent-cli-retention.json";
-  await symlink(path.join(forbidden, "outside.json"), marker);
-  const on = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden], retention: { maxAgeMs: 1 } }, host);
-  await assert.rejects(() => writeArtifact(artifactRequest(), on, host, signal), /metadata|canonical|symlink/i);
-  assert.deepEqual(await readdir(forbidden), []);
-  await rm(marker);
-  await writeArtifact(artifactRequest(), on, host, signal);
-  await writeFile(old.path, "replacement");
-  await writeFile(path.join(directory, "unrelated.agent-cli-retention.json"), "{}");
-  clock += 10000;
-  await writeArtifact(artifactRequest({ bytes: new Uint8Array([6]) }), on, host, signal);
-  assert.equal(await readFile(old.path, "utf8"), "replacement");
-  assert.equal(await readFile(path.join(directory, "unrelated.agent-cli-retention.json"), "utf8"), "{}");
-});
-
 import { binaryArtifact } from "cli-for-agents";
 import { deliverBinary } from "../dist/internal/artifacts.js";
 import { chmod } from "node:fs/promises";
@@ -381,26 +310,20 @@ const binaryInput = (extra = {}) => ({ bytes: new Uint8Array([0, 255, 128, 10, 1
 async function binaryResponse(request, operation = { effect: "read" }, secondary = []) {
   return assembleResponse({ result: { ok: true, binary: request }, operation, renderPrimary: () => "2 records exported" }, { guidance: await arbitrate({ commandPath: "doctor", handler: { instruction: instruction("owner", "Inspect before continuing.") }, candidates: [], conflictSink: () => {} }), doctor, executable: "tool", secondary });
 }
-test("finite binary constructor snapshots bytes and JSON summary without exposing mutable retained buffers", () => {
+test("finite binary constructor snapshots bytes and JSON summary at construction", () => {
   const input = binaryInput();
-  const request = (() => { try { return binaryArtifact(input); } catch { return undefined; } })();
-  assert.ok(request, "finite binary request must be constructed");
+  const request = binaryArtifact(input);
   input.bytes.fill(4); input.summary.records = 999;
-  const observed = request.bytes; observed.fill(5);
   assert.deepEqual(request.bytes, binaryInput().bytes);
   assert.deepEqual(request.summary, { records: 2 });
   assert.equal(Object.isFrozen(request), true);
   assert.equal(Object.isFrozen(request.summary), true);
 });
-test("binary constructor rejects malformed metadata, nonfinite sources, getters and non-JSON summaries", () => {
+test("binary constructor rejects malformed metadata, nonfinite sources and non-JSON summaries", () => {
   for (const basename of ["", ".", "..", "../escape", "a/b", "a\\b", "a\n", "x".repeat(129)]) assert.throws(() => binaryArtifact(binaryInput({ basename })), /basename|text/);
   for (const mediaType of ["", "text", "text/", "/plain", "text/plain\r\nX: y", "text/plain; bad", "text/ plain"]) assert.throws(() => binaryArtifact(binaryInput({ mediaType })), /media type/);
   for (const source of [[], {}, new ArrayBuffer(3), (async function* () { yield new Uint8Array([1]); })()]) assert.throws(() => binaryArtifact(binaryInput({ bytes: source })), /Uint8Array|finite bytes/);
   for (const summary of [undefined, NaN, { f() {} }, new Uint8Array([1])]) assert.throws(() => binaryArtifact(binaryInput({ summary })));
-  let reads = 0;
-  const hostile = { ...binaryInput(), get summary() { reads++; return {}; } };
-  assert.throws(() => binaryArtifact(hostile), /data properties/);
-  assert.equal(reads, 0);
 });
 for (const format of ["json", "text"]) {
   for (const explicit of [false, true]) {
@@ -430,10 +353,10 @@ for (const format of ["json", "text"]) {
     if (wire) assert.equal(wire.error.code, "KERNEL_OUTPUT");
   });
 }
-test("binary writer rejects forged requests and accepts empty finite exports and MIME parameters", async t => {
+test("binary writer rejects malformed requests and accepts empty finite exports and MIME parameters", async t => {
   const { directory, host } = await fixture(t);
   const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
-  await assert.rejects(() => deliverBinary(binaryInput(), policy, host, signal), /binary request/i);
+  await assert.rejects(() => deliverBinary({ ...binaryInput(), bytes: [1] }, policy, host, signal), /binary/i);
   const request = binaryArtifact(binaryInput({ bytes: new Uint8Array(), mediaType: 'text/csv; charset="utf-8"' }));
   const manifest = await deliverBinary(request, policy, host, signal);
   assert.equal(manifest.bytes, 0);
@@ -514,23 +437,12 @@ test("binary explicit collisions refuse unrelated bytes and pre-aborted writes p
   assert.deepEqual(aborted.recovery, receipt);
   assert.equal(host.calls.filter(call => call.kind === "write").length, before);
 });
-test("retention rechecks canonical forbidden roots before deleting old artifacts", async t => {
-  const { directory, forbidden, host: base } = await fixture(t);
-  let clock = Date.now();
-  const host = { ...base, now: () => clock };
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden], retention: { maxAgeMs: 1 } }, host);
-  const old = await writeArtifact(artifactRequest(), policy, host, signal);
-  await rm(forbidden, { recursive: true }); await symlink(old.path, forbidden);
-  clock += 10000;
-  await writeArtifact(artifactRequest({ bytes: new Uint8Array([8]) }), policy, host, signal);
-  assert.equal(await host.files.kind(old.path), "file", "newly canonical forbidden target must be preserved");
-});
 test("guidance conflict and its required stop instruction survive failed artifact delivery", async () => {
-  const selected = await arbitrate({ commandPath: "doctor", handler: { instruction: instruction("owner", "Wait.") }, candidates: [{
-    authority: "remote", commandPath: "doctor", issues: [],
-    candidates: [{ tier: "instruction", value: instruction("remote", "Continue."), provenance: { authority: "remote", commandPath: "doctor", ruleId: "rule" } }],
+  const selected = await arbitrate({ commandPath: "doctor", handler: { instruction: instruction("owner", "Wait.") }, evaluated: {
+    commandPath: "doctor", issues: [],
+    candidates: [{ tier: "instruction", value: instruction("policy", "Continue."), provenance: { commandPath: "doctor", ruleId: "rule" } }],
     firings: [{ type: "guidance.rule_fired", commandPath: "doctor", ruleId: "rule", tier: "instruction" }],
-  }], conflictSink: () => {} });
+  }, conflictSink: () => {} });
   const assembled = await assembleResponse({ result: { ok: true, data: "x".repeat(40000) }, operation: { effect: "applied", recovery: receipt },
     renderPrimary: () => "Saved" }, { guidance: selected, doctor, executable: "tool", secondary: [] });
   for (const format of ["json", "text"]) {
@@ -563,28 +475,4 @@ for (const format of ["json", "text"]) {
       }
     });
   }
-}
-
-for (const kind of ["automatic ownership", "explicit protection"]) {
-  for (const directoryOnly of [false, true]) {
-    test(`${kind} metadata publication refuses a newly canonical forbidden target (directory-only: ${directoryOnly})`, async t => {
-    const { directory, forbidden, host: base } = await fixture(t);
-    const writes = [];
-    const host = { ...base, files: { ...base.files, async writeAtomic(...args) { writes.push(args[0]); return base.files.writeAtomic(...args); } } };
-    const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden], retention: { maxAgeMs: 1000 } }, host);
-    const request = artifactRequest();
-    const digest = createHash("sha256").update(request.bytes).digest("hex");
-    const destination = path.join(directory, `${digest}-${request.basename}`);
-    const metadata = destination + (kind === "automatic ownership" ? ".agent-cli-retention.json" : ".agent-cli-keep");
-    await rm(forbidden, { recursive: true });
-    await symlink(metadata + (directoryOnly ? "/" : ""), forbidden);
-    assert.equal(await host.files.canonicalPath(forbidden), metadata + (directoryOnly ? "/" : ""));
-    const input = kind === "automatic ownership" ? request : { ...request, out: destination, reason: "explicit_out" };
-    await assert.rejects(() => writeArtifact(input, policy, host, signal), /forbidden/i);
-    assert.equal(await host.files.kind(metadata), "missing");
-    assert.equal(writes.includes(metadata), false, "forbidden metadata must never reach atomic publication");
-    assert.equal(await host.files.kind(destination), kind === "automatic ownership" ? "file" : "missing");
-  });
-}
-
 }

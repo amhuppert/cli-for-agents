@@ -37,8 +37,8 @@ export const show = family.defineCommand(showSpec, {
 ```
 
 Export the inert spec so the handler can import its type without an inference
-cycle. The explicit `default` snapshot also works with esbuild's generated module
-namespaces. Every command needs a nonempty example inventory. Nested paths need
+cycle. The runtime reads the lazy module's `default` export, so the explicit
+snapshot shown above is optional. Every command needs a nonempty example inventory. Nested paths need
 parent `defineGroup` declarations in `createCli.groups`.
 
 Flags are optional unless `required: true`; positionals are required unless
@@ -133,8 +133,8 @@ Raw text ingestion uses a file-valued flag instead of a JSON payload declaration
 The [claim mutation](../../examples/local-workspace/apply.handler.ts) uses
 `mutation<typeof applySpec, Workspace, Claim, typeof errors.definitions, {}, Claim>`.
 Its decoder is `claimSchema`; `prepare` checks the node and returns
-`{ ok: true, value: payload }` or a catalog failure. Its commit uses the framework's
-invocation-scoped `prepared.value`, saves one receipt, and returns:
+`{ ok: true, value: payload }` or a catalog failure. Its commit receives
+`prepared.value` and `prepared.payloadHash`, saves one receipt, and returns:
 
 ```ts
 return {
@@ -148,8 +148,7 @@ return {
 ```
 
 The declaration names `claim validate`; that twin shares decoding and preparation
-and cannot call commit. Execution rejects cross-command, cross-run, altered-hash
-and consumed preparation tokens. Preparation purity still needs a domain test:
+and cannot call commit. Preparation purity still needs a domain test:
 compare durable state before/after the twin, then observe the receipt with a fresh
 reader after apply. The library cannot prove that application services are pure.
 
@@ -189,14 +188,14 @@ Use `page` on already-paged data with a read-only `invocation` reveal when cut.
 Handlers may return a `hint(invocation(command, input), action)` or
 `instruction(ownerId, text)`. Instructions suppress hints. Reminder/steering rules
 live in a lazy guidance module, run synchronously over explicit state and emit
-candidates through `evaluateGuidance`. Rule sources require a firing sink at the
-state authority; CLI guidance configuration requires a conflict sink.
+candidates through `evaluateGuidance`. Rule sources require a firing sink; CLI
+guidance configuration requires a conflict sink.
 
-The [remote guidance provider](../../examples/remote-service/guidance.mjs) decodes
-server candidates with `decodeEvaluatedGuidance`. The runtime checks the current
-command and references; response assembly arbitrates once with handler guidance.
-Different required instructions yield a stop-and-report conflict. Transport
-handles authentication, and the application owns durable event logging.
+The [remote pilot's guidance module](../../examples/remote-service/guidance.mjs)
+evaluates its rules locally; the service returns data only. The runtime checks the
+current command and references; response assembly arbitrates once with handler
+guidance. Different required instructions yield a stop-and-report conflict. The
+application owns durable event logging.
 
 ## 5. Verify and launch
 

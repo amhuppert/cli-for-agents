@@ -151,9 +151,9 @@ const reminder = defineReminderRule<{ readonly editing: boolean }>({
   when: (state) => state.editing,
   text: () => "Preserve the review record.",
 });
-evaluateGuidance({ authority: "local", command: editTicket, state: { editing: true }, rules: [reminder], eventSink: () => {} });
+evaluateGuidance({ command: editTicket, state: { editing: true }, rules: [reminder], eventSink: () => {} });
 // @ts-expect-error Rules cannot be registered without observable firings/conflicts.
-evaluateGuidance({ authority: "local", command: editTicket, state: { editing: true }, rules: [reminder] });
+evaluateGuidance({ command: editTicket, state: { editing: true }, rules: [reminder] });
 
 const complete = { truncated: false, returned: count(1), total: { kind: "known", count: count(1) } } as const;
 accepts<Omission>(complete);

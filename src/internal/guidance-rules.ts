@@ -1,40 +1,18 @@
-import type { GuidanceRule, ReminderRule, ReminderRuleDefinition, SteeringDefinition, SteeringRule } from "../guidance/index.js";
+import type { EvaluatedGuidance, GuidanceRule, ReminderRule, ReminderRuleDefinition, SteeringDefinition, SteeringRule } from "../guidance/index.js";
 import { protocolLimits } from "../results.js";
 import { commandData } from "./declarations.js";
-import { assertFields, assertIdentifier, assertSerializedLimit, assertText } from "./validation.js";
+import { assertFields, assertIdentifier, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
 
-const rules = new WeakSet<object>();
-
-/** Callback-bearing declarations need descriptor capture without JSON cloning identities. */
+/** Callback-bearing declarations are copied field by field; JSON cloning would drop
+ * the callbacks and the command identities they reference. */
 export function captureRecord(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Expected a rule/evaluation record.");
-  const prototype: unknown = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) throw new TypeError("Expected a plain record.");
-  const copy: Record<string, unknown> = Object.create(null);
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (typeof key !== "string" || !descriptor?.enumerable || !("value" in descriptor)) {
-      throw new TypeError("Expected enumerable data properties.");
-    }
-    copy[key] = descriptor.value;
-  }
-  return copy;
+  return { ...value } as Record<string, unknown>;
 }
 
 export function captureArray(value: unknown): readonly unknown[] {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new TypeError("Expected a plain array.");
-  const length: unknown = Object.getOwnPropertyDescriptor(value, "length")?.value;
-  const keys = Reflect.ownKeys(value);
-  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 || keys.length !== length + 1) {
-    throw new TypeError("Expected a dense undecorated array.");
-  }
-  const copy = [];
-  for (let i = 0; i < length; i++) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
-    if (!descriptor?.enumerable || !("value" in descriptor)) throw new TypeError("Expected array data elements.");
-    copy.push(descriptor.value);
-  }
-  return Object.freeze(copy);
+  if (!Array.isArray(value)) throw new TypeError("Expected a plain array.");
+  return Object.freeze([...value]);
 }
 
 export function checkGuidanceId(value: unknown): asserts value is string {
@@ -76,10 +54,8 @@ function admit<State>(definition: unknown, reminder: boolean): GuidanceRule<Stat
     if (snapshot["tier"] !== "hint" && snapshot["tier"] !== "instruction") throw new TypeError("Unsupported steering tier.");
     checkCallback(snapshot["render"]);
   }
-  // Brands follow complete admission; retained command identities and callbacks are not cloned.
-  const rule = Object.freeze({ ...snapshot, appliesTo, ...(reminder ? { tier: "reminder" } : {}) }) as GuidanceRule<State>;
-  rules.add(rule);
-  return rule;
+  // Retained command identities and callbacks are not cloned.
+  return Object.freeze({ ...snapshot, appliesTo, ...(reminder ? { tier: "reminder" } : {}) }) as GuidanceRule<State>;
 }
 export function makeReminderRule<State>(definition: ReminderRuleDefinition<State>): ReminderRule<State> {
   return admit<State>(definition, true) as ReminderRule<State>;
@@ -87,16 +63,27 @@ export function makeReminderRule<State>(definition: ReminderRuleDefinition<State
 export function makeSteering<State>(definition: SteeringDefinition<State>): SteeringRule<State> {
   return admit<State>(definition, false) as SteeringRule<State>;
 }
+/** Rules come from defineReminderRule/defineSteering; a raw definition fails here clearly. */
 export function checkRule(value: unknown): asserts value is GuidanceRule<unknown> {
-  if (value === null || typeof value !== "object" || !rules.has(value)) throw new TypeError("Unknown or forged guidance rule.");
+  if (value === null || typeof value !== "object" || !("id" in value) || !("appliesTo" in value)
+    || !("when" in value) || !("tier" in value)) throw new TypeError("Expected an admitted guidance rule.");
 }
 
-// Preserve local rule identities across evaluation/decoding until composition can
-// check the current CLI. Authoritative wire batches have no local declarations.
-const evaluationReferences = new WeakMap<object, readonly GuidanceRule<unknown>[]>();
-export function retainEvaluationRules(batch: object, rules: readonly GuidanceRule<unknown>[]): void {
-  evaluationReferences.set(batch, Object.freeze([...rules]));
-}
-export function evaluatedRules(batch: unknown): readonly GuidanceRule<unknown>[] {
-  return batch !== null && typeof batch === "object" ? evaluationReferences.get(batch) ?? [] : [];
+/** The provider returns what evaluateGuidance produced; a wrong return fails here clearly. */
+export function checkEvaluatedGuidance(value: unknown): EvaluatedGuidance {
+  const snapshot = frozenJson(value);
+  assertRecord(snapshot);
+  assertFields(snapshot, ["commandPath", "candidates", "firings", "issues"]);
+  assertText(snapshot["commandPath"]);
+  const candidates = snapshot["candidates"];
+  if (!Array.isArray(candidates) || !Array.isArray(snapshot["firings"]) || !Array.isArray(snapshot["issues"])) throw new TypeError("Expected guidance batch arrays.");
+  for (const entry of candidates) {
+    assertRecord(entry);
+    if (!["hint", "instruction", "reminder"].includes(entry["tier"] as string)) throw new TypeError("Unsupported guidance tier.");
+    assertRecord(entry["value"]);
+    const provenance = entry["provenance"];
+    assertRecord(provenance);
+    checkGuidanceId(provenance["ruleId"]);
+  }
+  return snapshot as EvaluatedGuidance;
 }

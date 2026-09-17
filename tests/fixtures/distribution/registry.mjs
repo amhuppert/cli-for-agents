@@ -4,8 +4,7 @@ import { createCli } from 'cli-for-agents/runtime';
 const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
 const spec = { summary: 'Inspect distribution', description: 'Exercise installed consumer execution', requires: 'none', effects: 'read', args: [], flags: {} };
 const inspect = family.defineCommand({ ...spec, path: 'inspect' }, {
-  // esbuild namespaces use getters. Snapshot the declared export after lazy loading;
-  // the runtime deliberately accepts executable data properties only.
+  // Snapshot the declared export after lazy loading so this module never imports the handler statically.
   examples: [{ why: 'Inspect the executable' }], handler: async () => ({ default: (await import('./handler.mjs')).default }),
 });
 const contracts = family.defineCommand({ ...spec, path: 'contracts' }, {

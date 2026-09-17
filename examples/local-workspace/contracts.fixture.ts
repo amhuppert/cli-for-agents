@@ -59,7 +59,7 @@ export function localContractFixtures(): ContractFixtures {
     }),
     'single-guidance-arbitration': () => {
       const selected = createWorkspaceCli({ load: async () => ({ default: async () => evaluateGuidance({
-        command: apply, authority: 'workspace-policy', state: {},
+        command: apply, state: {},
         rules: [defineSteering({ id: 'workspace-review', appliesTo: [apply], when: () => true, tier: 'instruction', render: () => instruction('review-required', 'Stop and request review of the saved claim.') })], eventSink: () => {},
       }) }), conflictSink: () => {} });
       // Bootstrap with ordinary policy: the conflicting provider applies only to the mutation run.

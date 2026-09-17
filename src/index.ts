@@ -11,7 +11,7 @@ export type {
 export { defineErrors, kernelErrors, protocolLimits, recoveryFacts } from "./results.js";
 export type {
   AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess,
-  CliError, CommitReport, ContractViolation, Effect, Envelope, ErrorCatalog,
+  CliError, CommitReport, Effect, Envelope, ErrorCatalog,
   ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure,
   Preparation, Prepared, Result, Success,
 } from "./results.js";

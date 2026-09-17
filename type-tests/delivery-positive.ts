@@ -41,7 +41,7 @@ void guidance;
 const hook: PostOperationHook<Contexts> = async ({ requires, app, host, outcome }) => {
   if (requires === "remote") accepts<string>(app.endpoint);
   accepts<AnyResult>(outcome.result);
-  return { guidance: [], artifacts: await resolveArtifactPolicy({ directory: "/configured", forbiddenRoots: [] }, host), issues: [] };
+  return { artifacts: await resolveArtifactPolicy({ directory: "/configured", forbiddenRoots: [] }, host), issues: [] };
 };
 declare const parsed: ParsedInvocation<Contexts, KernelCode>;
 declare const resolved: ResolvedRunRequest;
@@ -62,8 +62,8 @@ accepts<Promise<AssembledResponse>>(assembled);
 accepts<Promise<RunResult>>(assembled.then(response => deliver(response, { format: "json", budget: validateOutputBudget(), host, signal })));
 // A policy failure must not erase an earlier valid required candidate batch.
 declare const batch: EvaluatedGuidance;
-accepts<PostOperationFacts>({ guidance: [batch], issues: [{ code: "KERNEL_OUTPUT", message: "Policy resolution failed" }] });
-accepts<CompletedExecution>({ execution, secondary: [], postOperation: "failed", facts: { guidance: [batch], issues: [] } });
+accepts<PostOperationFacts>({ guidance: batch, issues: [{ code: "KERNEL_OUTPUT", message: "Policy resolution failed" }] });
+accepts<CompletedExecution>({ execution, secondary: [], postOperation: "failed", facts: { guidance: batch, issues: [] } });
 declare const instructionValue: Instruction;
 declare const provenance: GuidanceProvenance;
 accepts<GuidanceConflict>({ instructions: [

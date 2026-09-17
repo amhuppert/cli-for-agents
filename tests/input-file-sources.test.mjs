@@ -15,7 +15,7 @@ function fixture() {
     prepare: async ({ ctx }) => { seen.prepare.push(ctx.inputFiles); return { ok: true, value: {} }; },
     commit: async ({ ctx }) => { seen.commit.push(ctx.inputFiles); return { effect: "applied", recovery: recoveryFacts([{ kind: "item", id: "saved" }]), result: { ok: true, data: {} } }; },
   }) }) });
-  const cli = createCli({ name: "tool", version: "1", family, commands: [status, save], contexts: {}, doctor: invocation(status, {}), output: { artifacts: { directory: "/artifacts", forbiddenRoots: [] } }, guidance: { load: async () => ({ default: async input => { seen.guidance.push(input.inputFiles); return evaluateGuidance({ command: input.command, authority: "local", state: {} }); } }), conflictSink() {} } });
+  const cli = createCli({ name: "tool", version: "1", family, commands: [status, save], contexts: {}, doctor: invocation(status, {}), output: { artifacts: { directory: "/artifacts", forbiddenRoots: [] } }, guidance: { load: async () => ({ default: async input => { seen.guidance.push(input.inputFiles); return evaluateGuidance({ command: input.command, state: {} }); } }), conflictSink() {} } });
   const run = (argv, stdin) => runCli(cli, { argv: [...argv, "--json"], env: { TOKEN: "environment-secret" }, host: createTestHost({ files: { "/artifacts/.keep": "", "doc.txt": "DOCUMENT CONTENT", "payload.json": '{"value":"PAYLOAD CONTENT"}', "body.txt": "BODY CONTENT", "attach.txt": "ATTACHMENT CONTENT", "settings.json": "CONFIG CONTENT", "secret.txt": "SECRET CONTENT", "private.txt": "PRIVATE CONTENT" }, ...(stdin === undefined ? {} : { stdin }) }), signal: new AbortController().signal });
   return { seen, run };
 }

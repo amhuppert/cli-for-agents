@@ -57,7 +57,9 @@ export async function runMain<Contexts>(cli: Cli<Contexts>, options?: { readonly
   try {
     if (options?.compileCache) {
       // Acceleration is optional even when supported but unavailable (e.g. permissions).
-      try { (await import("node:module")).enableCompileCache?.(); } catch { /* Continue without cache. */ }
+      const loaded: Record<string, unknown> = { ...(await import("node:module")) };
+      const enable = loaded["enableCompileCache"];
+      try { if (typeof enable === "function") enable(); } catch { /* Continue without cache. */ }
     }
     const result = await runCli(cli, { argv: process.argv.slice(2), env: process.env, signal: controller.signal });
     await Promise.all([stdout.write(result.stdout), stderr.write(result.stderr)]);

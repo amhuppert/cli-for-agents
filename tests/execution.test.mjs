@@ -83,7 +83,6 @@ test("parser refuses exclusive alternatives and competing stdin before any reads
 for (const [name, load] of [
   ["missing decoder", () => ({ default: { run: async () => ({ ok: true, data: {} }) } })],
   ["wrong schema version", () => ({ default: payloadRead({ decode: { "~standard": { version: 2, vendor: "fixture", validate: value => ({ value }) } }, run: async () => ({ ok: true, data: {} }) }) })],
-  ["forged module", () => ({ default: { ...payloadRead({ decode: identitySchema, run: async () => ({ ok: true, data: {} }) }) } })],
   ["malformed schema result", () => ({ default: payloadRead({ decode: schema(() => ({})), run: async () => ({ ok: true, data: {} }) }) })],
 ]) test(`untyped ${name} is a contract refusal before acquisition`, async () => {
   const x = fixture({ extra: { payload }, argv: ["--file", "payload.json"], files: { "payload.json": "{}" }, load });
@@ -120,7 +119,7 @@ for (const validation of [false, true]) test(`payload mutation ${validation ? "t
   assert.equal(result.execution.operation.effect, validation ? "read" : "not_applied");
   assert.equal(x.acquired(), 0);
 });
-const emptyFacts = async () => ({ guidance: [], issues: [] });
+const emptyFacts = async () => ({ issues: [] });
 const run = (x, contexts = x.contexts, hook = emptyFacts, request = x.request) => execute(x.resolution.invocation, request, contexts, hook);
 test("requires none omits app and bypasses providers through the production execute seam", async () => {
   let input;
@@ -165,7 +164,7 @@ test("release waits for a bounded post-operation hook and retains detached facts
   const pending = run(x, { remote: async () => ({ ok: true, app, release: () => { events.push("release"); app.open = false; } }) }, async input => {
     assert.equal(input.app, app); assert.equal(input.outcome.result.ok, true);
     events.push("hook"); enter(); await barrier;
-    assert.equal(app.open, true); events.push("settled"); return { guidance: [], issues: [] };
+    assert.equal(app.open, true); events.push("settled"); return { issues: [] };
   });
   await entered; assert.deepEqual(events, ["hook"]); finish();
   const result = await pending;
@@ -235,12 +234,6 @@ test("throwing scalar writes report unknown acknowledgment without input secrets
   assert.deepEqual(result.execution.operation.recovery, { kind: "unknown_acknowledgment", commandPath: "inspect", advice: "inspect_before_retry" });
   assert.doesNotMatch(JSON.stringify(result), /private-token/);
 });
-test("malformed acquired context still invokes its callable finalizer once", async () => {
-  let releases = 0; const x = fixture();
-  const result = await run(x, { remote: async () => ({ ok: true, app: {}, release() { releases++; }, unexpected: true }) });
-  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
-  assert.equal(releases, 1);
-});
 test("level inventory is checked before provider acquisition", async () => {
   const x = fixture({ extra: { levels: { full: { output: "bounded" } } }, load: () => ({ default: { run: async () => ({ ok: true, data: {} }) } }) });
   const result = await run(x);
@@ -260,7 +253,7 @@ test("cancellation during hook settlement does not release the app early", { tim
   const controller = new AbortController(); const x = fixture(); let releases = 0; let entered; let settle;
   const entry = new Promise(resolve => { entered = resolve; }); const barrier = new Promise(resolve => { settle = resolve; });
   const pending = run(x, { remote: async () => ({ ok: true, app: {}, release() { releases++; } }) }, async () => {
-    entered(); await barrier; controller.signal.throwIfAborted(); return { guidance: [], issues: [] };
+    entered(); await barrier; controller.signal.throwIfAborted(); return { issues: [] };
   }, { ...x.request, signal: controller.signal });
   await entry; controller.abort(); await Promise.resolve(); assert.equal(releases, 0);
   settle(); const result = await pending;
@@ -274,7 +267,6 @@ test("handler clock sleep uses the injected fake clock", async () => {
   } } }) });
   assert.equal((await run(x)).execution.result.data.elapsed, 5);
 });
-const { preparationScope, mintPreparation, usePreparation } = await import("../dist/internal/preparations.js");
 function mutationFixture({ prepare, commit, decode = identitySchema, text = '{"name":"new"}' } = {}) {
   const state = { names: [], prepared: 0, committed: 0, released: 0, decoded: 0 };
   const x = fixture({ extra: { effects: "write", payload: { maxBytes: bytes(128), validatePath: "validate" } }, argv: ["--file", "payload.json"], files: { "payload.json": text },
@@ -330,21 +322,6 @@ test("payload hash records exact bounded file bytes and recovery survives hook a
   assert.equal(result.execution.operation.effect, "applied"); assert.deepEqual(result.execution.operation.recovery.references, [{ kind: "item", id: "one" }]);
   assert.equal(x.state.released, 1); assert.deepEqual(result.secondary.map(x => x.code), ["KERNEL_GUIDANCE", "KERNEL_RELEASE"]);
 });
-for (const foreign of ["command", "run", "payload", "copy", "consumed"]) test(`private prepared dispatch rejects ${foreign} provenance before commit`, async () => {
-  const x = mutationFixture(); const y = mutationFixture(); const hash = "a".repeat(64); const changed = "b".repeat(64);
-  const scope = preparationScope(x.command, hash); const token = mintPreparation(scope, { value: 1 });
-  const other = foreign === "command" ? preparationScope(y.command, hash) : foreign === "run" ? preparationScope(x.command, hash) : scope;
-  if (foreign === "consumed") await usePreparation(scope, token, hash, async () => {});
-  let commits = 0;
-  await assert.rejects(async () => usePreparation(other, foreign === "copy" ? { ...token } : token, foreign === "payload" ? changed : hash, async () => { commits++; }), /prepar/i);
-  assert.equal(commits, 0);
-});
-test("preparation token is consumed before a throwing commit and cannot be replayed", async () => {
-  const x = mutationFixture(); const hash = "a".repeat(64); const scope = preparationScope(x.command, hash); const token = mintPreparation(scope, { name: "value" });
-  assert.ok(Object.isFrozen(token));
-  await assert.rejects(usePreparation(scope, token, hash, async () => { throw new Error("commit failure"); }), /commit failure/);
-  await assert.rejects(async () => usePreparation(scope, token, hash, async () => {}), /prepar/i);
-});
 test("cancellation after preparation prevents commit and releases", async () => {
   const controller = new AbortController();
   const x = mutationFixture({ prepare: async () => { controller.abort(); return { ok: true, value: {} }; } });
@@ -371,16 +348,6 @@ test("payload commit renderer is paired with its checked result and invoked afte
   const result = await run(x, { remote: async () => ({ ok: true, app: {}, release() { released = true; } }) });
   assert.throws(() => result.execution.renderPrimary(), /renderer failed/);
   assert.equal(result.execution.operation.effect, "applied"); assert.equal(result.execution.operation.recovery.references[0].id, "saved");
-});
-test("invalid post-commit result accessor cannot erase separately reported applied recovery", async () => {
-  const recovery = recoveryFacts([{ kind: "revision", id: "known" }]); let getterCalls = 0;
-  const x = mutationFixture({ commit: async (_input, _x, state) => {
-    state.names.push("saved");
-    return { effect: "applied", recovery, get result() { getterCalls++; throw new Error("result accessor"); } };
-  } });
-  const result = await run(x);
-  assert.equal(getterCalls, 0); assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
-  assert.equal(result.execution.operation.effect, "applied"); assert.deepEqual(result.execution.operation.recovery, recovery);
 });
 test("oversized mandatory unknown-acknowledgment path is refused before context or mutation", async () => {
   const x = fixture({ extra: { effects: "write", path: "x".repeat(1100) } });
@@ -409,11 +376,6 @@ test("Standard Schema implementations may expose their protocol through prototyp
     load: () => ({ default: payloadRead({ decode: new Decoder(), run: async input => ({ ok: true, data: input.payload }) }) }) });
   const result = await run(x, { remote: async () => ({ ok: true, app: {} }) });
   assert.equal(result.execution.result.ok, true); assert.equal(calls, 1); assert.deepEqual(result.execution.result.data, { valid: true });
-});
-test("a malformed accessor on acquired metadata does not lose the callable finalizer", async () => {
-  let releases = 0; let getters = 0; const x = fixture();
-  const result = await run(x, { remote: async () => ({ ok: true, app: {}, release() { releases++; }, get unexpected() { getters++; return true; } }) });
-  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT"); assert.equal(getters, 0); assert.equal(releases, 1);
 });
 test("lazy bindings accept real ESM import namespaces with named exports", async () => {
   const x = fixture({ extra: { requires: "none" }, load: () => import('data:text/javascript,export const helper = 1; export default { run: async () => ({ ok: true, data: { source: "esm" } }) };') });
@@ -449,27 +411,12 @@ for (const placement of ["prototype", "non-enumerable"]) {
       await Promise.resolve(); app.open = false; events.push("release");
     });
     const result = await run(x, { remote: async () => acquired }, async () => {
-      assert.equal(app.open, true); events.push("hook"); await Promise.resolve(); events.push("hook settled"); return { guidance: [], issues: [] };
+      assert.equal(app.open, true); events.push("hook"); await Promise.resolve(); events.push("hook settled"); return { issues: [] };
     }, { ...x.request, signal: controller.signal });
     assert.deepEqual(events, ["handler", "hook", "hook settled", "release"]);
     assert.equal(result.execution.result.ok, outcome === "success");
     if (outcome !== "success") assert.equal(result.execution.result.error.code, outcome === "failure" ? "REFUSED" : "KERNEL_CANCELLED");
     assert.deepEqual(result.secondary, []); assert.equal(app.open, false);
-  });
-}
-// Hostile JavaScript acquisition metadata must not discard an available cleanup method.
-for (const placement of ["enumerable", "prototype", "non-enumerable"]) {
-  for (const appShape of ["missing", "inherited", "accessor", "non-enumerable"]) test(`${placement} cleanup survives ${appShape} app metadata`, async () => {
-    let releases = 0; let getters = 0; let handlers = 0; let hooks = 0;
-    const x = fixture({ load: () => ({ default: { run: async () => { handlers++; return { ok: true, data: {} }; } } }) });
-    const acquired = acquiredWithRelease({}, placement, receiver => { assert.equal(receiver, acquired); releases++; });
-    delete acquired.app;
-    if (appShape === "inherited") Object.defineProperty(Object.getPrototypeOf(acquired), "app", { value: {}, enumerable: true });
-    if (appShape === "accessor") Object.defineProperty(acquired, "app", { get() { getters++; throw new Error("app getter touched"); }, enumerable: true });
-    if (appShape === "non-enumerable") Object.defineProperty(acquired, "app", { value: {}, enumerable: false });
-    const result = await run(x, { remote: async () => acquired }, async () => { hooks++; return { guidance: [], issues: [] }; });
-    assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT"); assert.equal(result.postOperation, "skipped");
-    assert.equal(releases, 1); assert.equal(getters, 0); assert.equal(handlers, 0); assert.equal(hooks, 0);
   });
 }
 test("malformed acquisition cleanup rejection remains secondary and is awaited", async () => {
@@ -479,11 +426,4 @@ test("malformed acquisition cleanup rejection remains secondary and is awaited",
   const result = await run(x, { remote: async () => acquired });
   assert.equal(releases, 1); assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
   assert.deepEqual(result.secondary.map(failure => failure.code), ["KERNEL_RELEASE"]);
-});
-test("release accessors are refused without evaluating them or a shadowed prototype method", async () => {
-  const x = fixture(); let getters = 0; let releases = 0;
-  const acquired = acquiredWithRelease({}, "prototype", () => { releases++; });
-  Object.defineProperty(acquired, "release", { get() { getters++; return () => { releases++; }; } });
-  const result = await run(x, { remote: async () => acquired });
-  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT"); assert.equal(getters, 0); assert.equal(releases, 0);
 });

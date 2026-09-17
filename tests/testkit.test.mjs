@@ -66,10 +66,10 @@ test('concurrent runs sharing a host have separate evidence', async () => {
     assert.equal(result.events.filter(event => event.type === 'handler.load').length, 1);
   }
 });
-test('format contradictions and foreign invocations are rejected before running services', async () => {
-  const x = fixture(), foreign = fixture();
+test('format contradictions and unresolvable invocations are rejected before running services', async () => {
+  const x = fixture();
   assert.equal((await runForTest(x.cli, ['inspect', '--json=false'], { host: x.host, format: 'json' })).exitCode, 2);
-  await assert.rejects(runForTest(x.cli, invocation(foreign.command, {}), { host: x.host, format: 'json' }), /member/);
+  await assert.rejects(runForTest(x.cli, { ...invocation(x.command, {}), path: 'absent' }, { host: x.host, format: 'json' }), /target/);
   assert.deepEqual(x.counts(), [0, 0]);
   await expectLazy(x.command);
 });

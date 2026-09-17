@@ -10,7 +10,7 @@ signatures are canonical; deep source/dist imports are not supported.
 
 ## Public boundary
 
-The package has four export paths, 40 function exports and two constant objects.
+The package has four export paths, 39 function exports and two constant objects.
 The [complete value/type/owner inventory](../implementation/api-inventory.md)
 is reconciled with built ESM. Private brands appear in declarations for checking,
 but their key and stamping mechanisms have no public export.
@@ -19,13 +19,12 @@ but their key and stamping mechanisms have no public export.
 | --- | --- |
 | `cli-for-agents` | `commandsFor`, `defineGroup`, `defineFlow`, `invocation`, `validationInvocation`, `runner`, `writeRunner`, `payloadRead`, `mutation`, `defineErrors`, `recoveryFacts`, `page`, `binaryArtifact`, `bytes`, `count`, `milliseconds`, `id`; constants `kernelErrors`, `protocolLimits` |
 | `cli-for-agents/runtime` | `createCli`, `runCli`, `main`, `nodeHost`, `helpNode`, `commandReference`, `validateReferences`, `writeCommandReference`, `decodeEnvelope`, `renderInvocation` |
-| `cli-for-agents/guidance` | `hint`, `instruction`, `defineReminderRule`, `defineSteering`, `evaluateGuidance`, `decodeEvaluatedGuidance` |
+| `cli-for-agents/guidance` | `hint`, `instruction`, `defineReminderRule`, `defineSteering`, `evaluateGuidance` |
 | `cli-for-agents/testing` | `createTestHost`, `runForTest`, `contractTests`, `createContractFixtures`, `expectBounded`, `expectLazy`, `expectDisclosureParity` |
 
 `family.defineCommand(spec, binding)` and `catalog.error(code, options)` are
-callable members. No public parser, arbiter, prepared-token mint, artifact writer
-or unbounded renderer seam is exposed. The unused private scaffold helper has no
-callers. `examples/notebook` remains an intentionally compile-only fixture; the
+callable members. No public parser, arbiter, artifact writer or unbounded renderer
+seam is exposed. `examples/notebook` remains an intentionally compile-only fixture; the
 local/remote pilots are the runnable examples.
 
 ## Declaration and input derivation
@@ -67,11 +66,11 @@ Caller inputs and handler inputs are distinct:
 - `invocation` checks exact caller inputs and preserves argument token boundaries.
   Secret flags are excluded; only a declared credential environment fallback makes
   omission runnable. `validationInvocation` targets the generated read-only twin.
-  Runtime rebinding checks current-CLI membership and accepted inputs. References
-  must retain nonsecret scope/filter/cursor values supplied by the application.
-  Internal snapshots, including hints and error continuations, retain local
-  invocation identity. Actual JSON transport removes that identity, so received
-  references must be rebound against the receiving CLI before use.
+  Runtime rebinding checks the current CLI's registry and accepted inputs.
+  References must retain nonsecret scope/filter/cursor values supplied by the
+  application. An invocation is plain JSON with no hidden identity: hints, error
+  continuations and received references are all rebound by path against the
+  current CLI before use.
 
 The same `inputModel` supplies parser, help and invocation acceptance. `defineFlow`
 is help/reference sequence metadata; lazy steering constructs actual next steps.
@@ -87,9 +86,8 @@ is help/reference sequence metadata; lazy steering constructs actual next steps.
 
 Payload modules carry a structural Standard Schema v1 decoder. Schema libraries
 are app-owned and lazy. File, JSON and schema errors occur before context
-acquisition. Payload-write commit receives a framework-minted prepared token with
-a payload hash; cross-command/run use, changed hash and repeated consumption fail.
-Preparation purity and durable domain truth remain application obligations.
+acquisition. Payload-write commit receives the prepared value together with the
+payload hash. Preparation purity and durable domain truth remain application obligations.
 
 A context provider receives typed globals, environment, host and cancellation,
 and returns app state plus optional release, or a catalog error. Execution calls
@@ -107,8 +105,9 @@ is supplied. Actual text/JSON disclosure parity needs consumer tests.
 Author `Result<Data>`, `CommitReport<Data>` and other DTO-bearing types with
 explicit data parameters. Ordinary interfaces work without index signatures.
 Framework `Any*` slots anchor `JsonValue` directly; they do not recursively default
-`JsonData<JsonValue>`. JSON boundaries reject cycles, nonfinite numbers, accessors,
-custom serialization and non-JSON data. Binary requests are distinct from JSON.
+`JsonData<JsonValue>`. JSON boundaries reject cycles, nonfinite numbers, undefined,
+functions, sparse arrays and non-plain objects, and keep a detached frozen copy.
+Binary requests are distinct from JSON.
 
 `OperationEffect` owns `read`, `not_applied`, `applied` and `unknown`. Success
 permits read/applied only. Applied writes carry bounded `recoveryFacts` containing
@@ -126,16 +125,13 @@ known effect/recovery. `why` and failure issues occur only inside `error`;
 success diagnostics occur only in top-level `issues`.
 
 Handlers author one hint or instruction. Rules evaluate pure synchronous
-predicates at their state authority, returning candidates, provenance and firing
-events. They do not arbitrate handler guidance. Sources with rules require a
-firing sink; configured local arbitration requires a conflict sink. Remote decoding
-checks shape/protocol, while transport owns authenticity. Evidence is optional.
+predicates in the CLI process, returning candidates, provenance and firing events.
+They do not arbitrate handler guidance. Sources with rules require a firing sink;
+configured local arbitration requires a conflict sink. Evidence is optional.
 
-A `GuidanceProvider` returns `GuidanceSources`: one evaluated batch or a readonly
-array of independently evaluated authority batches, including an empty array.
-Each batch keeps its authority, rule provenance and firing events. A malformed or
-wrong-command batch causes a contract failure without discarding valid siblings;
-the runtime does not merge authorities or synthesize firing evidence.
+A `GuidanceProvider` returns the one batch evaluated for the executing command.
+A malformed or wrong-command batch is a contract failure; the runtime never
+synthesizes firing evidence.
 
 Response assembly is the sole arbiter. Instructions suppress hints. Reminders
 are priority ordered, tied by stable rule ID, text-deduplicated and capped at two.
@@ -166,8 +162,7 @@ directory must exist; canonical destination ancestors and forbidden roots are
 checked through symlinks. Automatic spill, explicit `--out` and finite binary
 requests share atomic collision/refusal semantics. Identical content may be reused;
 unrelated files are not overwritten. Manifests report absolute path, actual
-bytes/SHA256, format/media type, reason and `contains`. Retention is off unless
-configured and requires the host's optional retention capabilities.
+bytes/SHA256, format/media type, reason and `contains`.
 Wire decoding enforces the writer's media-type syntax and format/content
 correlation: binary format requires binary contents, and other formats cannot
 claim binary contents. Decoding does not grant filesystem authority.
@@ -201,8 +196,7 @@ with reason, extra fields and deletion condition; exceptions never relax byte bo
 
 Types and architecture tests are guardrails, not a callback sandbox. Applications
 own schema semantics, storage transactions, preparation purity, transport security,
-durable logging and truthful reported IDs. Portable Node path checks do not lock
-directory ancestors against concurrent hostile replacement. Test-host clocks and
+durable logging and truthful reported IDs. Test-host clocks and
 files are deterministic substitutes; actual host/process/pilot tests provide the
 real filesystem/transport evidence. Supported runtime evidence is enumerated in
 the final report, not a claim for every operating system.

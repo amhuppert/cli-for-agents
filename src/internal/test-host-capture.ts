@@ -11,10 +11,6 @@ export function captureHost(host: Host, calls: HostCall[]): Host {
     canonicalPath(path) { record({ kind: "canonicalPath", path }); return host.files.canonicalPath(path); },
     kind(path) { record({ kind: "kind", path }); return host.files.kind(path); },
     writeAtomic(...args) { record({ kind: "write", path: args[0] }); return host.files.writeAtomic(...args); },
-    ...(host.files.retention ? { retention: {
-      list(path: string) { record({ kind: "retention-list", path }); return host.files.retention!.list(path); },
-      remove(path: string, expected: Uint8Array) { record({ kind: "retention-remove", path }); return host.files.retention!.remove(path, expected); },
-    } } : {}),
   };
   return { files,
     now() { record({ kind: "clock" }); return host.now(); },

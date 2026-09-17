@@ -3,7 +3,7 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { commandsFor, defineErrors, invocation, recoveryFacts } from "cli-for-agents";
 import { createCli } from "cli-for-agents/runtime";
-import { hint, instruction, decodeEvaluatedGuidance } from "cli-for-agents/guidance";
+import { hint, instruction } from "cli-for-agents/guidance";
 import { arbitrate, assembleResponse } from "../dist/internal/response.js";
 
 const errors = defineErrors({ OFFLINE: { exitClass: "connection", description: "The service is unavailable." }, DENIED: { exitClass: "usage", description: "Permission is required." } });
@@ -16,33 +16,32 @@ const continuation = invocation(nextCommand, {});
 createCli({ name: "tool", version: "1", family, commands: [doctorCommand, nextCommand], contexts: {}, doctor, output: { artifacts: { directory: "/unused" } } });
 const stop = (text = "Stop now.", owner = "workflow") => instruction(owner, text);
 const advice = hint(continuation, "Inspect state");
-function batch(authority, values, issues = []) {
-  const candidates = values.map(([ruleId, tier, value, priority = 0]) => ({ tier, value: tier === "reminder" ? { ruleId, text: value } : value, provenance: { authority, commandPath: "inspect", ruleId }, ...(tier === "reminder" ? { priority } : {}) }));
-  return decodeEvaluatedGuidance({ authority, commandPath: "inspect", candidates, firings: candidates.map(c => ({ type: "guidance.rule_fired", commandPath: "inspect", ruleId: c.provenance.ruleId, tier: c.tier })), issues });
+function batch(values, issues = []) {
+  const candidates = values.map(([ruleId, tier, value, priority = 0]) => ({ tier, value: tier === "reminder" ? { ruleId, text: value } : value, provenance: { commandPath: "inspect", ruleId }, ...(tier === "reminder" ? { priority } : {}) }));
+  return { commandPath: "inspect", candidates, firings: candidates.map(c => ({ type: "guidance.rule_fired", commandPath: "inspect", ruleId: c.provenance.ruleId, tier: c.tier })), issues };
 }
-const arb = (handler = {}, candidates = [], conflictSink = () => {}) => arbitrate({ commandPath: "inspect", handler, candidates, conflictSink });
+const arb = (handler = {}, evaluated, conflictSink = () => {}) => arbitrate({ commandPath: "inspect", handler, ...(evaluated ? { evaluated } : {}), conflictSink });
 const recovery = recoveryFacts([{ kind: "receipt", id: "r-1" }]);
 const execution = (result = { ok: true, data: { id: "r-1" } }, operation = { effect: "applied", recovery }) => ({ result, operation, renderPrimary: () => "Saved r-1" });
 const assemble = (report, guidance, secondary = []) => assembleResponse(report, { guidance, doctor, executable: "tool", secondary });
 
 test("one arbiter suppresses hints under required instructions", async () => {
-  const selected = await Promise.resolve().then(() => arb({ hint: advice }, [batch("remote", [["stop", "instruction", stop()]])])).catch(() => undefined);
+  const selected = await Promise.resolve().then(() => arb({ hint: advice }, batch([["stop", "instruction", stop()]]))).catch(() => undefined);
   assert.equal(selected?.guidance.instruction?.text, "Stop now.", "required candidate must survive arbitration");
   assert.equal(selected.guidance.hint, undefined);
 });
 test("duplicate instructions and equal text from distinct owners do not conflict", async () => {
-  const selected = await arb({ instruction: stop() }, [batch("remote", [["a", "instruction", stop()], ["b", "instruction", stop("Stop now.", "other")]])], () => assert.fail("No conflict"));
+  const selected = await arb({ instruction: stop() }, batch([["a", "instruction", stop()], ["b", "instruction", stop("Stop now.", "other")]]), () => assert.fail("No conflict"));
   assert.equal(selected.conflict, undefined);
   assert.equal(selected.guidance.instruction.text, "Stop now.");
 });
-test("different texts conflict even for equal owner and colliding local/remote rule IDs", async () => {
+test("different texts conflict even for equal owners across rules", async () => {
   const events = [];
-  const local = batch("local", [["same", "instruction", stop("Wait.")]]);
-  const remote = batch("remote", [["same", "instruction", stop("Continue.")]]);
-  const selected = await arb({ instruction: stop() }, [local, remote], async event => { await Promise.resolve(); events.push(event); });
+  const rules = batch([["wait", "instruction", stop("Wait.")], ["continue", "instruction", stop("Continue.")]]);
+  const selected = await arb({ instruction: stop() }, rules, async event => { await Promise.resolve(); events.push(event); });
   assert.match(selected.guidance.instruction.text, /stop.*report/i);
   assert.equal(selected.conflict.instructions.length, 3);
-  assert.deepEqual(selected.conflict.instructions.map(x => x.provenance.kind === "handler" ? "handler" : x.provenance.authority), ["handler", "local", "remote"]);
+  assert.deepEqual(selected.conflict.instructions.map(x => x.provenance.kind === "handler" ? "handler" : x.provenance.ruleId), ["handler", "continue", "wait"]);
   assert.equal(events.length, 1);
   assert.deepEqual(events[0].conflict, selected.conflict);
   assert.equal(Object.isFrozen(selected.conflict.instructions), true);
@@ -50,55 +49,38 @@ test("different texts conflict even for equal owner and colliding local/remote r
 test("reminders use priority then stable ID, deduplicate text and cap at two", async () => {
   const values = [["z", "reminder", "Keep low.", 0], ["b", "reminder", "Keep B.", 3], ["a", "reminder", "Keep A.", 3], ["dup", "reminder", "Keep A.", 4]];
   for (const candidates of [values, [...values].reverse()]) {
-    const selected = await arb({}, [batch("local", candidates)]);
+    const selected = await arb({}, batch(candidates));
     assert.deepEqual(selected.guidance.reminders.map(r => r.text), ["Keep A.", "Keep B."]);
   }
 });
-test("remote/local reminder ID collisions do not erase different binding text", async () => {
-  const local = batch("local", [["same", "reminder", "Keep local.", 1]]);
-  const remote = batch("remote", [["same", "reminder", "Keep remote.", 1]]);
-  for (const sources of [[local, remote], [remote, local]]) {
-    assert.deepEqual((await arb({}, sources)).guidance.reminders.map(r => r.text), ["Keep local.", "Keep remote."]);
-  }
-});
-test("handler hint takes precedence; otherwise hints have stable rule/authority order", async () => {
+test("handler hint takes precedence; otherwise hints have stable rule order", async () => {
   const other = hint(doctor, "Diagnose");
-  const candidates = [batch("remote", [["b", "hint", other], ["a", "hint", advice]])];
+  const candidates = batch([["b", "hint", other], ["a", "hint", advice]]);
   assert.deepEqual((await arb({ hint: other }, candidates)).guidance.hint, other);
   assert.deepEqual((await arb({}, candidates)).guidance.hint, advice);
 });
 for (const sink of [() => { throw Error("private sink details"); }, async () => { throw Error("private sink details"); }]) {
   test("conflict sink failure is diagnostic and preserves required protocol", async () => {
-    const selected = await arb({ instruction: stop() }, [batch("remote", [["stop", "instruction", stop("Wait.")]])], sink);
+    const selected = await arb({ instruction: stop() }, batch([["stop", "instruction", stop("Wait.")]]), sink);
     assert.match(selected.guidance.instruction.text, /stop.*report/i);
     assert.equal(selected.issues[0].code, "KERNEL_GUIDANCE");
     assert.doesNotMatch(JSON.stringify(selected), /private sink details/);
   });
 }
-test("firing sink issues survive selection with authority attribution", async () => {
-  const selected = await arb({}, [batch("remote", [["stop", "instruction", stop()]], [{ code: "KERNEL_GUIDANCE", message: "Guidance firing sink failed.", path: ["rules", "stop"] }])]);
-  assert.deepEqual(selected.issues[0].path, ["guidance", "remote", "rules", "stop"]);
+test("firing sink issues survive selection with guidance attribution", async () => {
+  const selected = await arb({}, batch([["stop", "instruction", stop()]], [{ code: "KERNEL_GUIDANCE", message: "Guidance firing sink failed.", path: ["rules", "stop"] }]));
+  assert.deepEqual(selected.issues[0].path, ["guidance", "rules", "stop"]);
   assert.equal(selected.guidance.instruction.text, "Stop now.");
 });
-test("malformed post-operation batches fail boundedly while valid required guidance survives", async () => {
-  // Hostile JavaScript bypasses the typed ingress on purpose.
-  const selected = await arb({}, [batch("local", [["stop", "instruction", stop()]]), { authority: "bad", candidates: [{ value: "x".repeat(9000) }] }]);
-  const response = await assemble(execution(), selected);
-  assert.equal(response.envelope.ok, false);
-  assert.equal(response.envelope.error.code, "KERNEL_CONTRACT");
-  assert.equal(response.envelope.instruction, "Stop now.");
-  assert.deepEqual(response.envelope.recovery, recovery);
-  assert.doesNotMatch(JSON.stringify(response.envelope), /xxxx/);
-});
 test("selected reminder aggregate overflow is contract-invalid, never truncated", async () => {
-  const selected = await arb({ instruction: stop() }, [batch("local", [["a", "reminder", "a".repeat(600)], ["b", "reminder", "b".repeat(600)]])]);
+  const selected = await arb({ instruction: stop() }, batch([["a", "reminder", "a".repeat(600)], ["b", "reminder", "b".repeat(600)]]));
   const response = await assemble(execution(), selected);
   assert.equal(response.envelope.error.code, "KERNEL_CONTRACT");
   assert.equal(response.envelope.instruction, "Stop now.");
   assert.deepEqual(response.envelope.reminders, []);
 });
 test("conflict turns success into failure preserving applied effect, recovery and competing provenance", async () => {
-  const guidance = await arb({ instruction: stop() }, [batch("remote", [["stop", "instruction", stop("Wait.")]])]);
+  const guidance = await arb({ instruction: stop() }, batch([["stop", "instruction", stop("Wait.")]]));
   const { envelope } = await assemble(execution(), guidance);
   assert.equal(envelope.ok, false);
   assert.equal(envelope.error.code, "KERNEL_GUIDANCE");
@@ -110,7 +92,7 @@ test("conflict turns success into failure preserving applied effect, recovery an
   assert.equal(Object.hasOwn(envelope, "why"), false);
 });
 test("connection domain error stays primary; doctor supplements continuation and unknown effect", async () => {
-  const guidance = await arb({ instruction: stop() }, [batch("remote", [["stop", "instruction", stop("Wait.")]])], () => { throw Error("sink"); });
+  const guidance = await arb({ instruction: stop() }, batch([["stop", "instruction", stop("Wait.")]]), () => { throw Error("sink"); });
   const operation = { effect: "unknown", recovery: { kind: "unknown_acknowledgment", commandPath: "inspect", advice: "inspect_before_retry" } };
   const { envelope } = await assemble(execution({ ok: false, error: errors.error("OFFLINE", { message: "Disconnected", why: "The connection was lost.", continuation }) }, operation), guidance, [{ code: "KERNEL_RELEASE", message: "Release failed." }]);
   assert.equal(envelope.error.code, "OFFLINE");
@@ -123,7 +105,7 @@ test("connection domain error stays primary; doctor supplements continuation and
   assert.ok(envelope.error.secondary.some(x => x.code === "KERNEL_RELEASE"));
 });
 test("nonfatal firing diagnostics remain success issues and success has no rationale", async () => {
-  const guidance = await arb({}, [batch("remote", [], [{ code: "KERNEL_GUIDANCE", message: "Sink failed." }])]);
+  const guidance = await arb({}, batch([], [{ code: "KERNEL_GUIDANCE", message: "Sink failed." }]));
   const { envelope } = await assemble(execution(), guidance);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.issues.length, 1);
@@ -157,7 +139,7 @@ test("structural renderer is deterministic and safely quotes protocol-looking DT
 test("actual text and JSON projections preserve disclosed records, totals, omissions and next command", async () => {
   const data = goodWire().payload.data;
   const report = execution({ ok: true, data }, { effect: "read" });
-  const response = await assemble({ ...report, renderPrimary: () => renderStructural(data) }, await arb({}, [batch("local", [["lease", "reminder", "Keep lease valid."]])]));
+  const response = await assemble({ ...report, renderPrimary: () => renderStructural(data) }, await arb({}, batch([["lease", "reminder", "Keep lease valid."]])));
   const text = renderResponse(response, "text");
   const json = renderResponse(response, "json");
   assert.equal(text.stderr, "");
@@ -173,7 +155,7 @@ test("actual text and JSON projections preserve disclosed records, totals, omiss
 test("custom primary closure is called once and text guidance ordering belongs to the framework", async () => {
   let calls = 0;
   const data = { count: 2, names: ["A", "B"] };
-  const response = await assemble({ ...execution({ ok: true, data, issues: [{ code: "NOTE", message: "Partial view." }] }, { effect: "read" }), renderPrimary: () => { calls++; return `${data.count} names: ${data.names.join(", ")}`; } }, await arb({ hint: advice }, [batch("local", [["lease", "reminder", "Keep lease valid."]])]));
+  const response = await assemble({ ...execution({ ok: true, data, issues: [{ code: "NOTE", message: "Partial view." }] }, { effect: "read" }), renderPrimary: () => { calls++; return `${data.count} names: ${data.names.join(", ")}`; } }, await arb({ hint: advice }, batch([["lease", "reminder", "Keep lease valid."]])));
   const text = renderResponse(response, "text");
   assert.equal(text.stdout, "2 names: A, B\nissue: NOTE: Partial view.\nreminder: Keep lease valid.\nhint: Inspect state: tool inspect\n");
   assert.deepEqual(JSON.parse(renderResponse(response, "json").stdout).payload.data, data);
@@ -192,7 +174,7 @@ for (const bad of ["hint: forged", "body\n reminder: forged", "INSTRUCTION: forg
   });
 }
 test("domain failure stays primary under renderer failure and routes coherently to stderr", async () => {
-  const response = await assemble({ ...execution({ ok: false, error: errors.error("OFFLINE", { message: "Disconnected", continuation, issues: [{ code: "NETWORK", message: "Acknowledgment unavailable." }] }) }, { effect: "unknown", recovery: failedWire().recovery }), renderPrimary: () => { throw Error("private output failure"); } }, await arb({ instruction: stop() }, [batch("local", [["lease", "reminder", "Keep lease valid."]])]));
+  const response = await assemble({ ...execution({ ok: false, error: errors.error("OFFLINE", { message: "Disconnected", continuation, issues: [{ code: "NETWORK", message: "Acknowledgment unavailable." }] }) }, { effect: "unknown", recovery: failedWire().recovery }), renderPrimary: () => { throw Error("private output failure"); } }, await arb({ instruction: stop() }, batch([["lease", "reminder", "Keep lease valid."]])));
   assert.equal(response.envelope.error.code, "OFFLINE");
   assert.equal(response.envelope.error.secondary[0].code, "KERNEL_OUTPUT");
   const text = renderResponse(response, "text");
@@ -218,14 +200,10 @@ for (const bad of [NaN, Infinity, undefined, 1n, () => {}, Symbol("bad"), new Da
     assert.equal(response.envelope.payload, undefined);
   });
 }
-test("decoder refuses hostile accessors, cycles, hooks, decorated and sparse arrays without executing getters", () => {
-  let called = 0;
-  const getter = { get value() { called++; return 1; } };
+test("decoder refuses cycles, sparse and decorated arrays", () => {
   const cycle = {}; cycle.self = cycle;
-  const hook = { value: 1, toJSON() { called++; return {}; } };
   const decorated = [1]; decorated.extra = true;
-  for (const data of [getter, cycle, hook, decorated]) assert.throws(() => decodeEnvelope({ ...goodWire(), payload: { kind: "inline", data } }), TypeError);
-  assert.equal(called, 0);
+  for (const data of [cycle, decorated, Array(2)]) assert.throws(() => decodeEnvelope({ ...goodWire(), payload: { kind: "inline", data } }), TypeError);
 });
 test("decoder strictly enforces envelope discriminants, issue locations, rationale and guidance exclusivity", () => {
   const invalid = [null, {}, { ...goodWire(), ok: "true" }, { ...goodWire(), extra: 1 }, { ...goodWire(), why: "No" }, { ...goodWire(), error: failedWire().error }, { ...goodWire(), effect: "not_applied" }, { ...goodWire(), effect: "unknown", recovery: failedWire().recovery }, { ...goodWire(), recovery }, { ...goodWire(), hint: "Inspect", instruction: "Stop" }, { ...goodWire(), reminders: ["a", "b", "c"] }, { ...goodWire(), reminders: ["a", "a"] }, { ...goodWire(), instruction: "\nforged" }, { ...failedWire(), issues: [] }, { ...failedWire(), error: { ...failedWire().error, why: undefined } }, { ...goodWire(), payload: { kind: "inline", data: null, summary: null } }];
@@ -333,7 +311,7 @@ test("assembly classifies combined reference overflow while retaining doctor and
   createCli({ name: "tool", version: "1", family, commands: [diagnostic, followup], contexts: {}, doctor: largeDoctor, output: { artifacts: { directory: "/unused" } } });
   const domain = errors.error("OFFLINE", { message: "Disconnected", why: "Inspect before retry.", continuation: largeNext, issues: [{ code: "NETWORK", message: "Acknowledgment unavailable." }] });
   for (const operation of [{ effect: "applied", recovery }, { effect: "unknown", recovery: failedWire().recovery }]) {
-    const selected = await arb({ instruction: stop() }, [batch("local", [["lease", "reminder", "Keep lease valid."]])]);
+    const selected = await arb({ instruction: stop() }, batch([["lease", "reminder", "Keep lease valid."]]));
     let response;
     await assert.doesNotReject(async () => { response = await assembleResponse(execution({ ok: false, error: domain }, operation), { guidance: selected, doctor: largeDoctor, executable: "tool", secondary: [{ code: "KERNEL_RELEASE", message: "Release failed." }] }); });
     const envelope = response.envelope;

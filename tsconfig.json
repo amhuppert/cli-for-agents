@@ -17,7 +17,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": false,
-    "types": [],
+    "types": ["node"],
     "noEmit": true,
     "paths": {
       "cli-for-agents": ["./src/index.ts"],

@@ -168,32 +168,7 @@ test('a real offline loader trace exposes an unexpected eager module', async () 
 });
 
 import { checkRuntime, runCompatibility } from '../scripts/distribution/compatibility.mjs';
-import { benchmarkIdle, summarizePairs } from '../scripts/distribution/idle.mjs';
 test('required compatibility runtimes cannot pass as absent or mismatched', () => {
   assert.throws(() => checkRuntime({ executable: resolve('.cc/temp/distribution/missing-runtime'), version: 'v20.20.2' }), /Required runtime unavailable/);
   assert.throws(() => checkRuntime({ executable: process.execPath, version: 'v0.0.0' }), /Runtime version mismatch/);
-});
-test('paired idle evidence contains actual floor and CLI executions with no timing gate', async () => {
-  const directory = await mkdtemp(resolve('.cc/temp/distribution/idle-'));
-  try {
-    const bundle = await bundleConsumer(directory);
-    const report = await benchmarkIdle(bundle.file, { samples: 9 });
-    assert.equal(report.timingGate, false);
-    assert.deepEqual(report.runtimes.map(runtime => runtime.name), ['node20', 'nodeCurrent'], 'record actual Node floor and current Node pairs');
-    for (const runtime of report.runtimes) {
-      assert.equal(runtime.pairs.length, 9);
-      for (const pair of runtime.pairs) {
-        assert.ok(Number.isFinite(pair.floorMs) && pair.floorMs >= 0);
-        assert.ok(Number.isFinite(pair.cliMs) && pair.cliMs >= 0);
-      }
-      assert.equal(runtime.floorCommand[1], '-e');
-      assert.equal(runtime.cliCommand.at(-1), '--version');
-    }
-    await writeFile('.cc/temp/distribution/idle.json', JSON.stringify(report, null, 2) + '\n');
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
-
-test('idle summary accepts arbitrarily slow samples as advisory evidence', () => {
-  const summary = summarizePairs([{ floorMs: 100000, cliMs: 900000 }, { floorMs: 200000, cliMs: 1000000 }, { floorMs: 300000, cliMs: 1100000 }]);
-  assert.equal(summary.pairedDeltaMedianMs, 800000);
 });

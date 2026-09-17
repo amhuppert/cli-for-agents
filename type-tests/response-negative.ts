@@ -35,11 +35,11 @@ accepts<AnyEnvelope>({ ...failure, issues: [] });
 const command = family.defineCommand(readSpec, { examples: [{ why: "Read" }], handler: async () => ({ default: read }) });
 declare const handler: HandlerGuidance;
 // @ts-expect-error Candidate evaluation cannot accept handler guidance to arbitrate.
-evaluateGuidance({ authority: "local", command, state: {}, handler });
+evaluateGuidance({ command, state: {}, handler });
 declare const batch: EvaluatedGuidance;
 // @ts-expect-error Evaluations no longer expose selected final guidance.
 batch.guidance;
 // @ts-expect-error A candidate batch cannot be returned as handler guidance.
 accepts<HandlerGuidance>(batch);
 // @ts-expect-error The single response arbiter requires observable conflicts.
-arbitrate({ commandPath: "read", handler, candidates: [batch] });
+arbitrate({ commandPath: "read", handler, evaluated: batch });

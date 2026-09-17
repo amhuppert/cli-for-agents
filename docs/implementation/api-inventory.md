@@ -1,6 +1,6 @@
 # Canonical API and runtime ownership inventory
 
-Ownership map for the 40 functions and two constant objects across the four package
+Ownership map for the 39 functions and two constant objects across the four package
 surfaces. All listed functions have implemented owners; no public path reaches the
 unused private scaffold helper. No deep import below the four package export paths is
 a supported consumer API. Source signatures are canonical, not copies in this
@@ -43,8 +43,7 @@ document; reconcile this map against `src` when a public signature changes.
 | guidance | instruction | kernel-values | Bounded required protocol with owner ID; handlers/rules |
 | guidance | defineReminderRule | guidance-candidates | Checked reminder declaration; state authority |
 | guidance | defineSteering | guidance-candidates | Checked hint/instruction rule; state authority |
-| guidance | evaluateGuidance | guidance-candidates | Candidates/provenance/firings only; local/remote authority |
-| guidance | decodeEvaluatedGuidance | guidance-candidates | Validates transported candidate batches; runtime provider |
+| guidance | evaluateGuidance | guidance-candidates | Candidates/provenance/firings only; rules run in the CLI process |
 | testing | createTestHost | node-host | Implements file snapshots/call recording and deterministic clock/sleep cancellation; consumer-testkit and contract tests consume it |
 | testing | runForTest | consumer-testkit | Concrete keyed contexts plus real runCli; consumers/pilots |
 | testing | contractTests | consumer-testkit | Runner-neutral contract case inventory; consumers |
@@ -56,7 +55,7 @@ document; reconcile this map against `src` when a public signature changes.
 The family method `defineCommand(spec,binding)` belongs to registry-parser;
 `ErrorCatalog.error(code,options)` belongs to kernel-values. They are callable
 members, not additional package-level exports. No public parser, arbiter, execute,
-prepared-token mint, policy resolver or artifact writer exists.
+policy resolver or artifact writer exists.
 
 ## Public type owners
 
@@ -66,9 +65,9 @@ prepared-token mint, policy resolver or artifact writer exists.
 | input | Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, ValueKind | registry-parser (declarations/parsing); execution-lifecycle (lazy schema) |
 | commands | Command, CommandBuilder, CommandFamily, CommandExample, CommandSpec, DisclosureLevel, Flow, Group, HelpSection, Invocation, RelatedCommand, SkillReference | registry-parser; help-reference consumes the same metadata |
 | runners | HandlerContext, HandlerInput, HandlerModule, MutationHandler, MutationModule, ReadHandler, WriteHandler, PayloadHandlerInput, PayloadReadHandler, PayloadReadModule | execution-lifecycle |
-| results | AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess, CliError, CommitReport, ContractViolation, Effect, Envelope, ErrorCatalog, ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure, Preparation, Prepared, Result, Success | kernel-values owns constructors/catalog/recovery; execution-lifecycle owns preparation/provenance; response-assembly owns envelopes/classification |
+| results | AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess, CliError, CommitReport, Effect, Envelope, ErrorCatalog, ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure, Preparation, Prepared, Result, Success | kernel-values owns constructors/catalog/recovery; execution-lifecycle owns preparation/provenance; response-assembly owns envelopes/classification |
 | disclosure | AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, ResolvedArtifactPolicy, Omission, Page, Payload, Total | page-disclosure (page/omission); artifact-delivery (policy/request/manifest); response-assembly (payload) |
-| runtime host/context | Environment, Host, ContextProvider, ContextProviders, SelectedContext, InputFileSource, PostOperationContext, GuidanceSources, GuidanceProvider, ArtifactPolicySource, CliOptions, Cli, RunRequest, ResolvedRunRequest, RenderedText, RunResult | node-host (capabilities); execution-lifecycle (acquisition/lifetime and immutable nonsecret file origins); runtime-composition (wiring); artifact-delivery (bounded RenderedText/RunResult) |
+| runtime host/context | Environment, Host, ContextProvider, ContextProviders, SelectedContext, InputFileSource, PostOperationContext, GuidanceProvider, ArtifactPolicySource, CliOptions, Cli, RunRequest, ResolvedRunRequest, RenderedText, RunResult | node-host (capabilities); execution-lifecycle (acquisition/lifetime and immutable nonsecret file origins); runtime-composition (wiring); artifact-delivery (bounded RenderedText/RunResult) |
 | runtime help/reference | HelpContextProvider, HelpContext, DocumentationRoot, HelpFlag, HelpArgument, HelpNode, ReferenceIssue, ReferenceValidation, ReferenceHost, ReferenceOptions | help-reference |
 | guidance | Hint, Instruction, RuleId, Reminder, ReminderList, HandlerGuidance, FinalGuidance, WireGuidance, ReminderRuleDefinition, ReminderRule, SteeringDefinition, SteeringRule, GuidanceRule, ConflictingInstruction, GuidanceConflict, GuidanceEvent, GuidanceEventSink, RuleRegistration, RuleFiring, ConflictEvent, FiringSink, ConflictSink, GuidanceProvenance, GuidanceCandidate, EvaluatedGuidance, GuidanceEvaluation | guidance-candidates owns rules/evaluation; response-assembly owns final selection; kernel-values owns bounded hint/instruction constructors |
 | testing host | HostCall, TestHost | node-host owns implemented file/clock/sleep capabilities and recording; consumer-testkit consumes them |
@@ -89,7 +88,7 @@ readonly JSON projection passed to `runner` and `writeRunner` text callbacks.
 | internal/registry: register(CliOptions) → Registry | registry-parser | createCli/runtime-composition | Family/doctor/graph/input/reference shape validation; no host/app acquisition |
 | internal/registry: resolve(Registry,argv) → Resolution | registry-parser | runtime-composition | Offline/leaf/invalid union; derived input inventory |
 | internal/registry: ParsedInvocation | registry-parser | execution-lifecycle | Validated registered command + parsed input; retains family/code/globals |
-| internal/execution: execute(invocation,resolvedRequest,contexts,postOperation) → CompletedExecution | execution-lifecycle | runtime-composition | Local/schema errors before acquisition; shared twin preparation and private run-token consumption |
+| internal/execution: execute(invocation,resolvedRequest,contexts,postOperation) → CompletedExecution | execution-lifecycle | runtime-composition | Local/schema errors before acquisition; shared twin preparation |
 | internal/execution: ExecutionResult / OperationOutcome | execution-lifecycle | post-operation hook, response-assembly | Application effects checked; private provenance separate from reports |
 | internal/execution: ExecutionResult.renderPrimary() → string | execution-lifecycle | response-assembly | Exact runner/level renderer closed over validated DTO or binary summary only; invoked after release and bounded by delivery |
 | internal/execution: unknownAcknowledgment | execution-lifecycle | execution failure handling | Registered path + optional payload hash only; no invented IDs or input secrets |
@@ -104,7 +103,6 @@ readonly JSON projection passed to `runner` and `writeRunner` text callbacks.
 | internal/artifacts: validateOutputBudget(budget?) → Bytes | artifact-delivery | runtime-composition before execution | Default 32768; reject configured budgets below 8192 before handlers/context acquisition |
 | internal/artifacts: deliver(AssembledResponse,options) → RunResult | artifact-delivery | runtime-composition for every response class | Combined-stream serialized UTF-8 bound, inline/spill/out/binary selection, truthful manifests, emergency fallback and final bounded RunResult construction |
 | internal/brand: Brand | kernel-values and owning validated boundaries | all owners | Unexported unique symbol; brands only after runtime checks |
-| internal/stub: notImplemented | unused historical placeholder | none | No imports or calls outside its own file; not a supported package export |
 
 The erased runner's renderer is private state retained by execution-lifecycle's
 checked wrappers. ExecutionResult.renderPrimary is the canonical data-closed invocation seam.
@@ -119,8 +117,8 @@ known effect/recovery when spill or serialization fails.
 If policy resolution fails after guidance collection, the runtime hook returns
 accumulated guidance/issues without artifacts. Failed hook results may retain
 partial facts too. Preserve those candidates and the known outcome; use bounded
-failure output without inventing an artifact directory. Decoder/renderer maps and run-token stores are
-private implementation state owned by execution-lifecycle.
+failure output without inventing an artifact directory. Decoder/renderer maps are private implementation
+state owned by execution-lifecycle.
 
 ## Verification ownership
 
@@ -154,7 +152,7 @@ assembleResponse → AssembledResponse → deliver signatures implement that con
 split; all three stages now have implemented production callers.
 
 Conflict entries retain instruction plus handler ownership or candidate
-command/authority/rule provenance. Both the conflict sink event and private
+command/rule provenance. Both the conflict sink event and private
 arbitration result carry these same entries; no detached instruction-only list
 loses competing provenance. The delivery compiler controls exercise the typed
 production handoff, partial policy-failure facts and conflict provenance.

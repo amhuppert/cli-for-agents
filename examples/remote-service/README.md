@@ -17,10 +17,11 @@ commands. `doctor`, `schema`, help, version, and exit-codes need no live service
   the injected host clock, then reads status. `status --cursor <cursor>` resumes. Emitted references retain the selected server
   and workspace; credentials remain in the declared environment fallback.
 
-The service's candidate rules and firing sink use `cli-for-agents/guidance`.
-The client decodes those candidates; response assembly arbitrates handler/local
-protocol and authoritative guidance. `show --conflict` exercises a competing
-local instruction. Neither client nor service implements live progress.
+Guidance rules live in the client's lazy guidance module and run in the CLI
+process; the service returns data only. Response assembly arbitrates handler
+protocol and rule candidates once. `show --conflict` exercises a handler
+instruction that competes with the rule. Neither client nor service implements
+live progress.
 
 Run through the project's registered validation:
 

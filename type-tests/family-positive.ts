@@ -1,7 +1,7 @@
 import { recoveryFacts, runner, type JsonData } from "cli-for-agents";
 /** Unsuppressed family/provider/handler positives, compiled in their own program. */
 import { commandsFor, defineErrors, bytes, invocation, mutation, type CommandSpec, type ReadHandler, type FamilyCode, type CliError, type AnyResult, type Result, type Preparation, type AnyCommitReport } from "cli-for-agents";
-import { createCli, type ContextProviders, type GuidanceProvider, type GuidanceSources, type Host } from "cli-for-agents/runtime";
+import { createCli, type ContextProviders, type GuidanceProvider, type Host } from "cli-for-agents/runtime";
 import type { EvaluatedGuidance } from "cli-for-agents/guidance";
 declare function accepts<T>(value: T): void;
 interface NestedReport { rows: { id: string; tags: string[] }[] }
@@ -12,13 +12,8 @@ runner<void, NestedReport>({
   text: renderNestedReport,
 });
 export type Contexts = { local: { readonly directory: string }; remote: { readonly endpoint: string } };
-declare const serverGuidance: EvaluatedGuidance;
 declare const localGuidance: EvaluatedGuidance;
-accepts<GuidanceSources>(serverGuidance);
-accepts<GuidanceSources>([serverGuidance, localGuidance]);
-accepts<GuidanceProvider<Contexts>>(async () => serverGuidance);
-accepts<GuidanceProvider<Contexts>>(async () => [serverGuidance, localGuidance]);
-accepts<GuidanceProvider<Contexts>>(async () => []);
+accepts<GuidanceProvider<Contexts>>(async () => localGuidance);
 export const errors = defineErrors({ DENIED: { exitClass: "failed", description: "Denied" } });
 export const globalFlags = {
   endpoint: { description: "Service", value: { kind: "url" }, default: "https://example.com" },

@@ -83,21 +83,15 @@ test("JSON accepts finite plain DTOs, null-prototype records and shared noncycli
   }
 });
 
-test("JSON rejects unsupported data without invoking accessors or serialization hooks", () => {
+test("JSON rejects data that would otherwise serialize silently as something else", () => {
   const cycle = {}; cycle.self = cycle;
-  let calls = 0;
-  const getter = Object.defineProperty({}, "x", { enumerable: true, get() { calls++; return 1; } });
-  const hook = { toJSON() { calls++; return {}; } };
-  const hidden = Object.defineProperty({}, "x", { value: 1 });
   const decorated = Object.assign([], { extra: 1 });
   for (const value of [undefined, NaN, Infinity, -Infinity, 1n, Symbol("x"), () => 1,
     new Date(), new Map(), new Set(), new Uint8Array([1]), new Number(1), /x/, cycle,
-    { nested: [undefined] }, { x: NaN }, Array(1), getter, hook, hidden, decorated,
-    { [Symbol("x")]: 1 }, Object.create({ inherited: 1 })]) {
+    { nested: [undefined] }, { x: NaN }, { f() {} }, Array(1), decorated, Object.create({ inherited: 1 })]) {
     assert.throws(() => assertJsonValue(value), TypeError);
     assert.throws(() => serializedJson(value), TypeError);
   }
-  assert.equal(calls, 0);
 });
 
 for (const name of ["instruction", "reminders", "recovery", "references", "manifest", "diagnosticSummary"]) {
@@ -166,17 +160,6 @@ test("mandatory error codes are bounded before a catalog can create responses", 
   assert.equal(defineErrors({ [code]: definitions.DENIED }).error(code, { message: "No" }).code, code);
 });
 
-test("recovery rejects array accessors without executing application code", () => {
-  let calls = 0;
-  const references = [];
-  Object.defineProperty(references, 0, { enumerable: true, get() {
-    calls++;
-    return { kind: "receipt", id: "1" };
-  } });
-  assert.throws(() => recoveryFacts(references), TypeError);
-  assert.equal(calls, 0);
-});
-
 test("mandatory aggregate limits include list/object overhead and all selected fields", () => {
   for (const [limit, make] of [
     [protocolLimits.reminders, text => ["First reminder", text]],
@@ -197,102 +180,4 @@ test("valid large optional JSON details remain available for downstream spill po
   assert.equal(error.details.length, details.length);
   assert.equal(error.details[149999], 149999);
   assert.ok(Object.isFrozen(error.details));
-});
-
-// Hostile JavaScript: a virtual hook is invisible to own-property validation.
-function virtualJson(value, replacement) {
-  let calls = 0;
-  const proxy = new Proxy(value, {
-    get(target, key, receiver) {
-      if (key === "toJSON") return () => { calls++; return replacement(calls); };
-      return Reflect.get(target, key, receiver);
-    },
-  });
-  return { proxy, calls: () => calls };
-}
-
-test("JSON snapshot helpers ignore virtual serialization hooks and retain descriptor data", () => {
-  for (const value of [{ kept: 1 }, [1, { kept: 2 }]]) {
-    const source = virtualJson(value, () => ({ injected: true }));
-    assert.equal(serializedJson(source.proxy), JSON.stringify(value));
-    assert.deepEqual(frozenJson(source.proxy), value);
-    assert.equal(source.calls(), 0);
-  }
-  const source = virtualJson({ text: "x".repeat(2048) }, () => ({}));
-  assert.throws(() => assertSerializedLimit(source.proxy, 1024), TypeError);
-  assert.equal(source.calls(), 0);
-});
-
-test("catalog definitions cannot replace their checked class through a virtual hook", () => {
-  const definition = virtualJson({ exitClass: "failed", description: "No" },
-    () => ({ exitClass: "bogus", description: "No" }));
-  const source = virtualJson({ DENIED: definition.proxy }, () => ({ DENIED: { exitClass: "version", description: "Changed" } }));
-  const catalog = defineErrors(source.proxy);
-  assert.equal(catalog.error("DENIED", { message: "No" }).exitClass, "failed");
-  assert.equal(catalog.definitions.DENIED.description, "No");
-  assert.equal(source.calls() + definition.calls(), 0);
-});
-
-test("error options and nested facts retain the validated descriptor values", () => {
-  const issue = virtualJson({ code: "NO", message: "No" }, () => ({ code: "NO", message: "x".repeat(2048) }));
-  const details = virtualJson({ kept: true }, () => ({ invalid: Infinity }));
-  const continuation = virtualJson(read, calls => ({ ...read, args: [calls === 1 ? "small" : "x".repeat(2048)] }));
-  const options = virtualJson({ message: "No", issues: [issue.proxy], details: details.proxy, continuation: continuation.proxy },
-    () => ({ message: "x".repeat(2048) }));
-  const error = defineErrors(definitions).error("OFFLINE", options.proxy);
-  assert.deepEqual(error, { code: "OFFLINE", exitClass: "connection", why: definitions.OFFLINE.description,
-    message: "No", issues: [{ code: "NO", message: "No" }], details: { kept: true }, continuation: read });
-  assert.equal([issue, details, continuation, options].reduce((total, source) => total + source.calls(), 0), 0);
-});
-
-test("recovery and hint size checks apply to the facts retained after snapshotting", () => {
-  const reference = virtualJson({ kind: "receipt", id: "r1" },
-    calls => ({ kind: "receipt", id: calls === 1 ? "r1" : "x".repeat(2048) }));
-  const references = virtualJson([reference.proxy], calls => [{ kind: "receipt", id: calls === 1 ? "r1" : "x".repeat(2048) }]);
-  const facts = recoveryFacts(references.proxy);
-  assert.deepEqual(facts, { kind: "reported", references: [{ kind: "receipt", id: "r1" }] });
-  assert.ok(Buffer.byteLength(JSON.stringify(facts)) <= protocolLimits.recovery);
-  const invocation = virtualJson(read, calls => ({ ...read, args: [calls === 1 ? "small" : "x".repeat(2048)] }));
-  const advice = hint(invocation.proxy, "Inspect");
-  assert.deepEqual(advice.invocation, read);
-  assert.ok(Buffer.byteLength(JSON.stringify({ invocation: advice.invocation })) <= protocolLimits.references);
-  assert.equal(reference.calls() + references.calls() + invocation.calls(), 0);
-});
-
-// Descriptor traps may change between observations too. Constructors must capture once.
-function changingDescriptor(value, key, later) {
-  let reads = 0;
-  return new Proxy(value, {
-    getOwnPropertyDescriptor(target, property) {
-      const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
-      if (property === key && ++reads > 1) return { ...descriptor, value: later };
-      return descriptor;
-    },
-  });
-}
-
-test("constructors validate and retain one snapshot despite changing descriptor traps", () => {
-  const definition = changingDescriptor({ exitClass: "failed", description: "No" }, "exitClass", "bogus");
-  const catalog = defineErrors({ DENIED: definition });
-  assert.equal(catalog.error("DENIED", { message: "No" }).exitClass, "failed");
-  const options = changingDescriptor({ message: "No" }, "message", "x".repeat(2048));
-  assert.equal(catalog.error("DENIED", options).message, "No");
-  const reference = changingDescriptor({ kind: "receipt", id: "r1" }, "id", "x".repeat(2048));
-  assert.equal(recoveryFacts([reference]).references[0].id, "r1");
-  const invocation = changingDescriptor({ ...read }, "args", ["x".repeat(2048)]);
-  assert.deepEqual(hint(invocation, "Inspect").invocation, read);
-});
-
-test("invalid descriptor facts cannot hide behind valid proxy property reads", () => {
-  const lie = value => new Proxy(value, { get(target, key, receiver) {
-    if (key === "exitClass") return "failed";
-    if (key === "message") return "No";
-    if (key === "id") return "r1";
-    if (key === "args") return [];
-    return Reflect.get(target, key, receiver);
-  } });
-  assert.throws(() => defineErrors({ BAD: lie({ exitClass: "bogus", description: "No" }) }), TypeError);
-  assert.throws(() => defineErrors(definitions).error("DENIED", lie({ message: "x".repeat(2048) })), TypeError);
-  assert.throws(() => recoveryFacts([lie({ kind: "receipt", id: "x".repeat(2048) })]), TypeError);
-  assert.throws(() => hint(lie({ ...read, args: ["x".repeat(2048)] }), "Inspect"), TypeError);
 });

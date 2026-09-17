@@ -5,38 +5,25 @@ import type { AssembledResponse } from "./response.js";
 import { renderResponse } from "./response.js";
 import type { AnyEnvelope, SecondaryFailure } from "../results.js";
 import type { Bytes } from "../values.js";
-import { bytes, milliseconds } from "../values.js";
+import { bytes } from "../values.js";
 import { decodeWireEnvelope, kernelError, protocolLimits } from "../results.js";
 import { assertArtifactBasename, binaryBytes } from "./binary.js";
 import { assertArtifactMetadata, assertFields, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
-import { expireArtifacts, protectExplicit, retentionMetadataName, trackArtifact } from "./artifact-retention.js";
-const resolvedPolicies = new WeakSet<object>();
-export function checkResolvedArtifactPolicy(value: unknown): asserts value is ResolvedArtifactPolicy {
-  if (value === null || typeof value !== "object" || !resolvedPolicies.has(value)) throw new TypeError("Expected a resolved policy from resolveArtifactPolicy.");
-}
 /** Resolves canonical roots, validates policy and freezes an app-free snapshot. */
 export async function resolveArtifactPolicy(policy: ArtifactPolicy, host: Host): Promise<ResolvedArtifactPolicy> {
   const snapshot = frozenJson(policy);
   assertRecord(snapshot);
-  assertFields(snapshot, ["directory", "forbiddenRoots"], ["retention"]);
+  assertFields(snapshot, ["directory", "forbiddenRoots"]);
   assertText(snapshot.directory);
   if (!Array.isArray(snapshot.forbiddenRoots)) throw new TypeError("Expected forbidden roots.");
   for (const root of snapshot.forbiddenRoots) assertText(root);
-  if (snapshot.retention !== undefined) {
-    assertRecord(snapshot.retention);
-    assertFields(snapshot.retention, ["maxAgeMs"]);
-    milliseconds(snapshot.retention.maxAgeMs);
-    if (!host.files.retention) throw new TypeError("Host does not support artifact retention.");
-  }
   const directory = await host.files.canonicalPath(snapshot.directory);
   const forbiddenRoots = await Promise.all(snapshot.forbiddenRoots.map(root => host.files.canonicalPath(root)));
   if (await host.files.kind(directory) !== "directory") throw new TypeError("Artifact directory must exist.");
   if (forbiddenRoots.some(root => within(directory, root))) throw new TypeError("Artifact directory is forbidden.");
   // Only canonical, validated, detached host data receives the resolved brand.
-  const resolved: ArtifactPolicy = { directory, forbiddenRoots, ...(snapshot.retention ? { retention: snapshot.retention } : {}) };
-  const retained = frozenJson(resolved) as ResolvedArtifactPolicy;
-  resolvedPolicies.add(retained);
-  return retained;
+  const resolved: ArtifactPolicy = { directory, forbiddenRoots };
+  return frozenJson(resolved) as ResolvedArtifactPolicy;
 }
 function within(destination: string, root: string): boolean {
   const normalized = root.replace(/\/+$/, "") || "/";
@@ -52,22 +39,14 @@ export async function writeArtifact(request: {
   readonly reason: ArtifactManifest["reason"];
   readonly contains: ArtifactManifest["contains"];
 }, policy: ResolvedArtifactPolicy, host: Host, signal: AbortSignal): Promise<ArtifactManifest> {
-  checkResolvedArtifactPolicy(policy);
   if (!(request.bytes instanceof Uint8Array)) throw new TypeError("Expected finite bytes.");
   const data = new Uint8Array(request.bytes);
   const metadata = frozenJson({ format: request.format, mediaType: request.mediaType, basename: request.basename,
     reason: request.reason, contains: request.contains, ...(request.out !== undefined ? { out: request.out } : {}) });
   assertArtifactBasename(metadata.basename);
   assertArtifactMetadata(metadata);
-  if (metadata.out !== undefined) {
-    assertText(metadata.out);
-    if (retentionMetadataName(metadata.out)) throw new TypeError("Reserved artifact metadata path.");
-  }
+  if (metadata.out !== undefined) assertText(metadata.out);
   signal.throwIfAborted();
-  const canonicalDirectory = await host.files.canonicalPath(policy.directory);
-  if (canonicalDirectory !== policy.directory || await host.files.kind(canonicalDirectory) !== "directory") {
-    throw new TypeError("Artifact directory changed after policy resolution.");
-  }
   const hash = await host.sha256(new Uint8Array(data));
   if (!/^[a-f0-9]{64}$/.test(hash)) throw new TypeError("Invalid host SHA256 digest.");
   const path = await import("node:path");
@@ -75,21 +54,14 @@ export async function writeArtifact(request: {
     : path.isAbsolute(metadata.out) ? metadata.out : `${policy.directory}${path.sep}${metadata.out}`;
   const destination = await host.files.canonicalPath(target);
   if (!within(destination, policy.directory) || destination === policy.directory) throw new TypeError("Artifact destination is outside its directory.");
-  for (const root of policy.forbiddenRoots) {
-    const current = await host.files.canonicalPath(root);
-    if (within(destination, root) || within(destination, current)) throw new TypeError("Artifact destination is forbidden.");
-  }
+  if (policy.forbiddenRoots.some(root => within(destination, root))) throw new TypeError("Artifact destination is forbidden.");
   if (await host.files.kind(path.dirname(destination)) !== "directory") throw new TypeError("Artifact parent must exist.");
   const manifest = { path: destination, format: metadata.format, mediaType: metadata.mediaType,
     bytes: bytes(data.byteLength), sha256: hash, reason: metadata.reason, contains: metadata.contains };
   // Refuse an unreportable path before publishing anything.
   assertSerializedLimit(manifest, protocolLimits.manifest);
   signal.throwIfAborted();
-  await expireArtifacts(policy, host, signal, destination);
-  if (metadata.out !== undefined) await protectExplicit(destination, policy, host);
-  signal.throwIfAborted();
   await host.files.writeAtomic(destination, data, "reuse-identical-or-refuse");
-  if (metadata.out === undefined) await trackArtifact(frozenJson(manifest) as ArtifactManifest, policy, host, new AbortController().signal);
   // Publication is acknowledged even if cancellation arrives while it settles.
   return frozenJson(manifest) as ArtifactManifest;
 }

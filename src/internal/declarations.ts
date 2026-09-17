@@ -8,13 +8,11 @@ import { assertFields, assertIdentifier, assertRecord, assertText, frozenJson } 
 type Metadata = Pick<CommandSpec, "path" | "summary" | "description" | "related" | "skills" | "sections" | "dynamicHelp">;
 export type CommandData = { readonly family: object; readonly model: InputModel; readonly examples: readonly object[]; readonly handler: () => Promise<unknown> };
 const commands = new WeakMap<object, CommandData>();
-const families = new WeakSet<object>();
-const groups = new WeakSet<object>();
 const flows = new WeakMap<object, readonly { readonly command: Command; readonly description: string }[]>();
 
 export function commandData(command: object): CommandData {
   const data = commands.get(command);
-  if (!data) throw new TypeError("Unknown or forged command token.");
+  if (!data) throw new TypeError("Unknown command token.");
   return data;
 }
 /** Family identity is checked before erasing its compile-time catalog keys. */
@@ -24,10 +22,10 @@ export function commandErrors(command: object): ErrorCatalog<ErrorDefinitions> {
   return (family as CommandFamily<unknown, ErrorDefinitions, Readonly<Record<string, Flag>>>).errors;
 }
 export function checkFamily(family: object): void {
-  if (!families.has(family)) throw new TypeError("Unknown command family.");
+  if (!("defineCommand" in family) || typeof family.defineCommand !== "function" || !("errors" in family)) throw new TypeError("Unknown command family.");
 }
 export function checkGroup(group: object): void {
-  if (!groups.has(group)) throw new TypeError("Unknown group token.");
+  if (!("kind" in group) || group.kind !== "group") throw new TypeError("Unknown group token.");
 }
 export function flowSteps(flow: object): readonly { readonly command: Command; readonly description: string }[] {
   const steps = flows.get(flow);
@@ -86,13 +84,12 @@ export function makeFamily<Contexts, D extends ErrorDefinitions, G extends Reado
     return command;
   };
   const family = Object.freeze({ errors: options.errors, globalFlags, defineCommand }) as CommandFamily<Contexts, D, G>;
-  families.add(family); return family;
+  return family;
 }
 export function makeGroup(definition: Metadata): Group {
   const snapshot = frozenJson(definition); assertRecord(snapshot);
   assertFields(snapshot, ["path", "summary", "description"], ["related", "skills", "sections", "dynamicHelp"]); checkMetadata(snapshot);
-  const group = Object.freeze({ ...snapshot, kind: "group" }) as Group;
-  groups.add(group); return group;
+  return Object.freeze({ ...snapshot, kind: "group" }) as Group;
 }
 export function makeFlow(definition: { readonly id: string; readonly steps: readonly { readonly command: Command; readonly description: string }[] }): Flow {
   assertIdentifier(definition.id);

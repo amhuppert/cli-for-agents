@@ -1,8 +1,7 @@
 import type { Invocation } from "./commands.js";
 import type { Brand } from "./internal/brand.js";
-import { invocationTarget } from "./internal/invocations.js";
 import { makeBinaryRequest } from "./internal/binary.js";
-import { assertFields, assertRecord, frozenJson } from "./internal/validation.js";
+import { assertFields, assertInvocation, assertRecord, frozenJson } from "./internal/validation.js";
 import { count } from "./values.js";
 import type { ArtifactPath, Bytes, Count, JsonData, JsonValue, Sha256 } from "./values.js";
 
@@ -42,13 +41,8 @@ export function page<Item>(source: {
   }
   let omission: Omission;
   if (snapshot.more) {
-    // JSON snapshots lose token identity. Keep the original checked, immutable
-    // reference so filters, cursor and view remain renderable without rebuilding.
-    const reveal = source.reveal;
-    if (!reveal) throw new TypeError("Truncated pages require a read continuation.");
-    invocationTarget(reveal);
-    if (reveal.effects !== "read") throw new TypeError("Page continuation must have read effects.");
-    omission = { truncated: true, returned, total: snapshot.total, reveal };
+    assertInvocation(snapshot.reveal, "read");
+    omission = { truncated: true, returned, total: snapshot.total, reveal: snapshot.reveal as Invocation<"read"> };
   } else {
     omission = { truncated: false, returned, total: snapshot.total };
   }
@@ -78,8 +72,6 @@ export type ArtifactPolicy = {
   readonly directory: string;
   /** Resolve roots and destination ancestors through symlinks before checking containment. */
   readonly forbiddenRoots: readonly string[];
-  /** Retention defaults to off. Unrelated existing --out files are always refused. */
-  readonly retention?: { readonly maxAgeMs: import("./values.js").Milliseconds };
 };
 
 /** Finite bytes are never JSON data or a streaming source. The constructor validates

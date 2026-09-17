@@ -70,7 +70,7 @@ import { createRemoteCli, list as listCommand } from '../../examples/remote-serv
 import { invocation, bytes, recoveryFacts } from 'cli-for-agents';
 import { renderInvocation } from 'cli-for-agents/runtime';
 import { contractTests, createContractFixtures, createTestHost, runForTest } from 'cli-for-agents/testing';
-import { stopText } from './remote-server.mjs';
+import { stopText } from '../../examples/remote-service/guidance.mjs';
 
 test('bundled offline routes and rejected local inputs never reach the service', async t => {
   const x = await fixture(t);
@@ -96,7 +96,7 @@ test('bundled offline routes and rejected local inputs never reach the service',
   assert.equal(x.service.requests[1].authorized, true);
 });
 
-test('server stop instruction survives bundled JSON/text spill and local conflict', async t => {
+test('rule stop instruction survives bundled JSON/text spill and handler conflict', async t => {
   const x = await fixture(t);
   const json = await x.remote(['show', 'item-1', '--full']);
   assert.equal(json.exitCode, 0, json.stdout);
@@ -110,7 +110,6 @@ test('server stop instruction survives bundled JSON/text spill and local conflic
   const text = await x.run(['show', 'item-1', '--full', '--server', x.service.url]);
   assert.equal(text.exitCode, 0, text.stderr);
   assert.ok(text.stdout.includes(stopText));
-  assert.ok(x.service.firings.some(event => event.commandPath === 'show' && event.ruleId === 'inspect-receipt'));
   const conflict = await x.remote(['show', 'item-1', '--full', '--conflict']);
   assert.equal(conflict.exitCode, 1);
   assert.equal(conflict.envelope.error.code, 'KERNEL_GUIDANCE');
@@ -141,7 +140,6 @@ for (const name of inheritedNames) test(`remote inherited contract: ${name}`, as
     },
     'single-guidance-arbitration': async () => {
       const value = await pair(['show', 'item-1', '--conflict']);
-      assert.equal(x.service.firings.length, 2);
       assert.equal(x.service.requests.length, 2);
       return value;
     },

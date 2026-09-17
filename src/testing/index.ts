@@ -9,7 +9,7 @@ import type { Command, CommandSpec, Invocation } from "../commands.js";
 import type { ArtifactManifest } from "../disclosure.js";
 import type { Brand } from "../internal/brand.js";
 import { makeTestHost } from "../internal/test-host.js";
-import { cliConfiguration, cliRegistry, commandCli, checkMembership, validateInvocation, resolve } from "../internal/registry.js";
+import { cliConfiguration, cliRegistry, commandCli, checkMembership, rebindInvocation, resolve } from "../internal/registry.js";
 import { invocationArgv } from "../internal/invocations.js";
 import { observeRun } from "../internal/test-observation.js";
 import type { Observation } from "../internal/test-observation.js";
@@ -22,7 +22,7 @@ import type { Bytes, Milliseconds } from "../values.js";
 /** Runner-neutral tests: applications keep their real domain services when useful. */
 export type ContractCase = { readonly name: string; readonly run: () => Promise<void> };
 export type HostCall =
-  | { readonly kind: "read" | "write" | "canonicalPath" | "kind" | "retention-list" | "retention-remove"; readonly path: string }
+  | { readonly kind: "read" | "write" | "canonicalPath" | "kind"; readonly path: string }
   | { readonly kind: "stdin" | "sha256" | "clock" }
   | { readonly kind: "sleep"; readonly duration: Milliseconds };
 export type TestHost = Host & Brand<"TestHost"> & {
@@ -63,11 +63,7 @@ export async function runForTest<Contexts>(cli: Cli<Contexts>, input: readonly s
   const registry = cliRegistry(cli);
   let tokens: readonly string[];
   if (Array.isArray(input)) tokens = input;
-  else {
-    const reference = input as Invocation;
-    validateInvocation(registry, reference);
-    tokens = invocationArgv(reference);
-  }
+  else tokens = invocationArgv(rebindInvocation(registry, input));
   if (options.format !== "text" && options.format !== "json") throw new TypeError("Invalid test format.");
   const initial = resolve(registry, tokens);
   const initialJson = initial.kind === "leaf" ? initial.invocation.json : initial.json;
