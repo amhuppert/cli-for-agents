@@ -73,11 +73,11 @@ export type ReadHandler<S extends CommandSpec, App, D extends ErrorDefinitions =
  */
 export function runner<Input, Data, Code extends string = string>(_definition: {
   readonly run: (input: Input) => Promise<Result<Data, Code>>;
-  readonly text?: (data: JsonData<NoInfer<Data>>) => string;
+  readonly text?: (data: NoInfer<JsonData<Data>>) => string;
 }): ((input: Input) => Promise<AnyResult<Code>>) & Brand<"RenderedRunner"> { return makeRenderedRunner(_definition) as ((input: Input) => Promise<AnyResult<Code>>) & Brand<"RenderedRunner">; }
 export function writeRunner<Input, Data, Code extends string = string>(_definition: {
   readonly run: (input: Input) => Promise<CommitReport<Data, Code>>;
-  readonly text?: (data: JsonData<NoInfer<Data>>) => string;
+  readonly text?: (data: NoInfer<JsonData<Data>>) => string;
 }): ((input: Input) => Promise<AnyCommitReport<Code>>) & Brand<"RenderedWriteRunner"> { return makeRenderedRunner(_definition) as ((input: Input) => Promise<AnyCommitReport<Code>>) & Brand<"RenderedWriteRunner">; }
 
 /** Scalar writes report their effect directly; no payload preparation or twin exists. */

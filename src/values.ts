@@ -7,10 +7,12 @@ export type JsonValue = null | boolean | number | string | readonly JsonValue[] 
 };
 /**
  * Projects ordinary DTO interfaces while excluding functions, bigint and undefined values.
- * Framework boundaries use JsonValue directly: projecting its recursive union has no
- * finite DTO shape and can exhaust TypeScript's instantiation depth.
+ * An already JSON-safe recursive value is a terminal case: expanding its union has
+ * no finite DTO shape and can exhaust TypeScript's instantiation depth.
  */
 export type JsonData<T> =
+  [T] extends [JsonValue] ? [JsonValue] extends [T] ? JsonValue : ProjectJsonData<T> : ProjectJsonData<T>;
+type ProjectJsonData<T> =
   T extends null | boolean | number | string ? T :
   T extends (...args: never[]) => unknown ? never :
   T extends readonly unknown[] ? { readonly [K in keyof T]: JsonData<T[K]> } :

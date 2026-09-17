@@ -40,3 +40,14 @@ export const mutator = mutation<typeof mutationSpec, never, string, {}, {}, Payl
 family.defineCommand(mutationSpec, { examples: [{ why: "Write", file: "payload.json" }], handler: async () => ({ default: mutator }) });
 declare const prepared: Prepared<"write", string>;
 accepts<Prepared<"write", string>>(prepared);
+
+// Projection must distribute over every result variant before inference is frozen.
+type UnionData = { readonly count: number } | { readonly names: readonly string[] };
+function unionText(data: UnionData): string {
+  return "count" in data ? String(data.count) : data.names.join(",");
+}
+runner<Input, UnionData, never>({ run: async () => ({ ok: true, data: { count: 1 } }), text: unionText });
+writeRunner<Input, UnionData, never>({
+  run: async () => ({ effect: "applied", result: { ok: true, data: { count: 1 } }, recovery: recoveryFacts([{ kind: "operation", id: "union-1" }]) }),
+  text: unionText,
+});
