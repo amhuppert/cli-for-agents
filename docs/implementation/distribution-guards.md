@@ -41,21 +41,14 @@ Explicit environment overrides allow provisioned CI locations, but versions must
 still match exactly. Missing executables and mismatched versions fail; no skips.
 CI configuration has been authored here; a hosted Actions run is not claimed.
 
-## Evidence
+## What the guards assert
 
-The first bundle assertion failed on the scaffold's empty output inventory.
-The expanded execution test then failed on the accessor namespace behavior above.
-Final package/bundle tests execute Node 20.20.2, Node 24.16.0 and Bun 1.3.14 using
-the baseline's exact absolute paths. All seven cases and an ordinary inspect run
-pass on each; a shebang invocation also passes. Full typecheck and build pass.
-Bounded results and settled validation IDs are in distribution-guards-output.json.
-
-Source-of-truth entry 1, implementation-contract decisions 13–15, governs lazy
-execution, process delivery, export privacy and the pinned compatibility paths.
-Package remains private, has four exports and zero runtime dependencies; all lockfile
-packages are development-only. Fixture handlers contain no process-output access
-and route their result through public main. No consumer repository, publication or
-git lifecycle action is involved.
+Package/bundle tests execute the pinned runtimes in `runtimes.json` at their exact
+absolute paths, running all seven inherited contract cases, an ordinary read, a
+shebang invocation, help, version, exit-codes and a parse refusal on each. They
+also assert that the package stays private, exposes exactly four exports and
+carries zero runtime dependencies, that every lockfile package is development-only,
+and that fixture handlers reach stdout only through public `main`.
 
 ## Startup and size guards
 
@@ -93,54 +86,36 @@ and unexpected eager modules. A lazy schema is the positive control. Size tests
 reject one byte over the measured ceiling, a raised ceiling despite a fitting
 bundle, new eager modules, and a matching allowlist expansion against history.
 
-Calibration snapshots are checked in as `distribution-import-inventory.json` and
-`distribution-measurement.json`; tests regenerate live evidence rather than trusting
-these point-in-time copies. The baseline has 68 source/offline entries. Empty imports
+Tests regenerate the import inventory and the bundle measurement on every run
+rather than trusting a checked-in snapshot; `scripts/distribution/baseline.json` is
+the only persisted calibration, with 68 source/offline entries. Empty imports
 and inline `type` specifiers retain side-effect edges under verbatimModuleSyntax;
 only declaration-level `import type`/`export type` erases them. Both missing-edge
 cases failed before repair. A real deliberately eager `node:os` offline trace fails
 the allowlist check. All 17 focused tests pass at the startup-guard checkpoint.
 
-## Actual compatibility and advisory idle evidence
+## Compatibility and advisory idle measurement
 
-`distribution-compatibility.json` records **42 actual executions**, not availability
-checks: seven requests against emitted ESM and the single-file bundle on each
-runtime below. Each form executes inspect, all seven inherited contract cases,
-root/command help, version, exit-codes and a parse refusal. Versions and exact
-absolute argument arrays are recorded. The consumer bundle paths are owned scratch
-files removed after testing; rerunning the registered test recreates equivalents.
+`scripts/distribution/compatibility.mjs` performs 42 actual executions, not
+availability checks: seven requests against emitted ESM and against the single-file
+bundle, on each runtime pinned in `runtimes.json` (Node floor, current Node, Bun).
+Each form executes inspect, all seven inherited contract cases, root and command
+help, version, exit-codes and a parse refusal; versions and exact argument arrays
+land in the generated report. Consumer bundle paths are scratch files removed after
+the run. Required-runtime checks reject a missing executable or a mismatched
+version, and a negative fixture proves each refusal — nothing is ever skipped.
+Hosted CI provisions the equivalent exact versions, runs these same tests and
+uploads the generated JSON as a workflow artifact.
 
-| Runtime | Exact version-check command | Actual version | Emitted / bundled requests |
-| --- | --- | --- | --- |
-| Node floor | `/Users/alex/.local/share/cli-for-agents/runtimes/node20/bin/node --version` | v20.20.2 | 7 / 7 passed |
-| Current Node | `/Users/alex/.nvm/versions/node/v24.16.0/bin/node --version` | v24.16.0 | 7 / 7 passed |
-| Bun | `/Users/alex/.bun/bin/bun --version` | 1.3.14 | 7 / 7 passed |
-
-These are the exact baseline/launch-contract paths, with the Node20 symlink's
-resolved executable included in the JSON report. Required-runtime checks reject
-missing executables and mismatched versions; a negative fixture proves each
-refusal. The initial implementation stub failed both missing-runtime refusal and
-actual paired-evidence assertions. Nothing is marked skipped. Hosted CI execution
-is not claimed: the checked-in job provisions the equivalent exact versions,
-verifies them through these same tests, and uploads the generated JSON evidence.
-
-`distribution-idle.json` records nine fresh-process pairs per Node version in this
-Darwin environment (the measuring process reports x64), following one discarded warmup pair. Each pair runs an empty
-Node process (`node -e ''`) and the same runtime executing the bundled CLI's
-`--version` path. Order alternates to reduce order bias. Compile cache is disabled;
-the registered wrapper's heap setting is inherited. Time includes process launch,
-module initialization and host contention, and is not a cold-disk experiment.
-
-| Runtime | Empty Node median | Offline CLI median | Median of paired differences |
-| --- | ---: | ---: | ---: |
-| Node 20.20.2 | 80.37 ms | 132.97 ms | 48.71 ms |
-| Node 24.16.0 | 91.83 ms | 123.11 ms | 28.82 ms |
-
-The median paired difference is calculated from each pair, so it need not equal
-the difference of the two separate medians. Raw samples, commands, timestamp,
-platform and methodology are retained. Timings are advisory: **there is no timing
-gate**. A synthetic slow-sample control proves the summary accepts slow timings.
-Process failures and missing compatibility runtimes still fail normally.
+`scripts/distribution/idle.mjs` measures nine fresh-process pairs per Node version
+after one discarded warmup pair. Each pair runs an empty Node process (`node -e ''`)
+and the same runtime executing the bundled CLI's `--version` path, alternating order
+to reduce order bias, with the compile cache disabled. The reported median of paired
+differences is computed per pair, so it need not equal the difference of the two
+separate medians. Elapsed time includes process launch, module initialization and
+host contention; this is not a cold-disk experiment. Timings are advisory: **there
+is no timing gate**, and a synthetic slow-sample control proves the summary accepts
+slow timings. Process failures and missing compatibility runtimes still fail.
 
 Reusable script entry points (the test imports the same functions):
 
@@ -152,5 +127,4 @@ node scripts/distribution/idle.mjs .cc/temp/distribution/manual/consumer.mjs .cc
 
 These assume emitted dist exists. Within CC, run the registered exact-file test
 shown above; do not bypass validation with the standalone commands. Standalone CI
-uses the checked-in ci.sh wrapper. The final full suite includes all 20 distribution
-checks, with all launched validations settled before task completion.
+uses the checked-in ci.sh wrapper.

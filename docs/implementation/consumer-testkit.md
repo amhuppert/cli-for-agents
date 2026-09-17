@@ -71,9 +71,9 @@ surface; it does not claim those later executable runs have happened.
 ## Disclosure exceptions
 
 `DisclosureException` is a JSON record with required `command`, nonempty
-`extraFields`, `rationale`, and `deleteWhen`. The current inventory is the empty
-array in `disclosure-exceptions.json`; no production exception is granted here.
-A consumer can store records with this shape:
+`extraFields`, `rationale`, and `deleteWhen`. No production exception is granted
+here; a consumer passes its own inventory, which starts empty. Records have this
+shape:
 
 ```json
 {
@@ -98,37 +98,3 @@ Every observation checks both streams against the CLI's configured budget. The
 inventory accepts no bound override or disable switch. Compiler fixtures separately
 reject missing metadata, empty extra-field tuples, missing scenarios and text
 capture masquerading as a JSON envelope.
-
-## Verification and charter
-
-41 focused tests cover helpers, seven positive/negative cases, disclosure inventory,
-concurrency, format selection, shell lexical edge cases and refusal-name collision.
-The initial helper tests failed on five stub assertions. The contract/exception
-checks failed on their missing behaviors before implementation. Shared-host call
-leakage, duplicate injected JSON flags, unquoted reserved/assignment executables and
-refusal flag collision each had a failing reproduction before repair. The missing
-local TypeScript dependency was installed with locked `npm ci --ignore-scripts`;
-that setup failure was not counted as a behavior test.
-
-Exact settled validation IDs and artifact paths are in consumer-testkit-output.json.
-Source-of-truth entry 1, implementation-contract decisions 9–15, governs canonical
-arbitration/protocol/delivery, offline behavior, injected hosts and runner-neutral
-cases. Static audits verify package privacy, no runtime dependencies, four exports,
-no eager builtins/package imports or process output in changed owners, no testkit
-stubs, canonical invocation/parse derivation and public runCli execution. The full
-runtime suite retains domain classification, required guidance and operation
-recovery through delivery failure. No consumer repositories, publishing or git
-lifecycle operations are part of this change.
-
-## Context-validation repair: partially quoted assignments
-
-The shell-reference assertion now snapshots quoting at the first equals sign.
-Quotes in the value cannot clear an unquoted assignment prefix. The reported
-`TOOL='contract'`, `TOOL=contract''` and `TOOL='con'tract` forms, plus two sibling
-forms, failed with missing expected rejection before this repair. All five now
-fail at the shell-reference assertion. Five positive controls retain acceptance
-when the whole executable, its name, or the equals sign is quoted. The new
-fixtures update both the delivered hint and JSON stream, preserving coherent
-public contract evidence. The public renderer and runtime are unchanged by this
-repair. Source-of-truth entry 1 decisions 11 and 15 governs shell-safe references
-and inherited contract checks.

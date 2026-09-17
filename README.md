@@ -6,9 +6,9 @@ references. The runtime owns lazy execution, guidance arbitration, bounded outpu
 artifacts and process draining. The kernel has **no runtime package dependencies**.
 
 Start with [adding a command](docs/implementation/add-a-command.md). Read the
-[public contract](docs/design/public-contract.md) for API guarantees and the
-[final verification report](docs/implementation/final-verification.md) for evidence
-and limits. [HANDOFF](HANDOFF.md) orients the next implementer.
+[public contract](docs/design/public-contract.md) for API guarantees and
+[ENVELOPE](ENVELOPE.md) for the conditions this code is built for — and the ones it
+will never meet. [HANDOFF](HANDOFF.md) orients the next implementer.
 
 ## Package surfaces
 

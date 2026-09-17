@@ -3,7 +3,6 @@ Provenance: copied verbatim on 2026-09-13 from the my-ai-resources repository
 (memory-bank/collaboration/592fad92-4333-4174-8293-4aa04cf6185c/round-1/agent_one/final_answer/answer.md),
 the final output of a two-agent design collaboration reviewed once by Alex.
 Status: a design proposal for review and iteration, not an approved specification.
-Its companion, agentic-cli-framework-design-audit.md, records how the proposal was negotiated.
 See HANDOFF.md at the repository root for the objective and the surrounding context.
 -->
 

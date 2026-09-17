@@ -1,13 +1,10 @@
 # Canonical API and runtime ownership inventory
 
-Governing source: `.cc/graph-workflow-docs/implementation-contract.md`, decisions
-2–15. Reconciled against the implemented source and built public exports on
-2026-09-15: 40 functions and two constant objects across four package surfaces.
-All listed functions have implemented owners; no public path reaches the unused
-private scaffold helper. See [live verification](final-live-evidence.json). No deep import below the four package export paths
-is a supported consumer API. Source signatures are canonical, not copies in this
-document. Final verification must reconcile every public value export and every
-private seam below with an implementation owner and its named test family.
+Ownership map for the 40 functions and two constant objects across the four package
+surfaces. All listed functions have implemented owners; no public path reaches the
+unused private scaffold helper. No deep import below the four package export paths is
+a supported consumer API. Source signatures are canonical, not copies in this
+document; reconcile this map against `src` when a public signature changes.
 
 ## Public value exports
 

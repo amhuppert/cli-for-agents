@@ -1,27 +1,25 @@
 # Handoff: cli-for-agents
 
-The first usable dependency-free CLI library is implemented and verified through
-its public package exports, real process delivery and two executable in-repository
-pilots. The package is private and unpublished. The original design proposal and
-review documents remain historical; their scaffold-only and future-work statements
-are superseded for this milestone by the launched implementation contract.
+A dependency-free private TypeScript library for command-line tools that AI agents
+call. It is implemented and exercised through its public package exports, real
+process delivery and two executable in-repository pilots. The package is private and
+unpublished, and nothing outside this repository imports it.
 
 ## Start here
 
 | Work | Read |
 | --- | --- |
+| Understand what this code is built for, and what it will never meet | [ENVELOPE](ENVELOPE.md) |
 | Build, test or launch a pilot | [README](README.md) |
 | Add a command, context, renderer or guidance rule | [Add-a-command guide](docs/implementation/add-a-command.md), then the linked executable source |
 | Change a public signature or runtime guarantee | [Public contract](docs/design/public-contract.md), [API/owner inventory](docs/implementation/api-inventory.md), matching `src` owner and `type-tests` |
-| Assess delivery or reproduce compatibility evidence | [Final verification](docs/implementation/final-verification.md), [finite acceptance matrix](docs/implementation/acceptance-matrix.md) |
-| Review the milestone's decisions | `.cc/graph-workflow-docs/implementation-contract.md` and `.cc/graph-workflow-docs/charter.md` in a workflow lane; [planning contract](docs/design/implementation-workflow.md) for repository provenance |
+| Change the packaging, bundle or runtime matrix | [Distribution guards](docs/implementation/distribution-guards.md) |
+| Write tests against a CLI built on this library | [Consumer testkit](docs/implementation/consumer-testkit.md) |
 
-The implementation contract is source-of-truth entry 1. It fixes context families,
-caller versus parsed inputs, lazy payload decoders, direct scalar writes, one
-candidate arbiter, operation recovery, finite binary artifacts and bounded delivery.
-The historical [review response](docs/design/contract-review-response-2026-09-13.md)
-explains the rationale; it is not the current API inventory. Source signatures
-remain canonical. Optional reminder evidence is supported.
+Read `ENVELOPE.md` before adding any mechanism. Source signatures are canonical;
+the documents above describe them, they do not replace them. The original design
+proposal in `docs/design/` preserves provenance only — its scaffold-only status and
+proposed API spellings are historical.
 
 ## Implemented ownership
 
@@ -41,10 +39,9 @@ remain canonical. Optional reminder evidence is supported.
   Domain consumers supply all seven fixture callbacks to prove their own services.
 
 The four supported package paths are root, `/runtime`, `/guidance` and `/testing`.
-The unused `internal/stub.ts` is unreachable from them. `examples/notebook` retains
-intentional compile-only stubs; executable evidence comes from `local-workspace`
-and `remote-service`. Source comments describing the initial scaffold are not
-runtime status evidence.
+The unused `internal/stub.ts` is a scaffold fossil, unreachable from all four.
+`examples/notebook` retains intentional compile-only stubs; executable evidence
+comes from `local-workspace` and `remote-service`.
 
 ## Development loop
 
@@ -61,30 +58,26 @@ missing behavior, then implement and keep the test green. Type/config-only and
 documentation changes do not need a manufactured runtime red. Settle every
 launched check; use CC for git lifecycle actions.
 
-Retain all isolated positive compiler controls before negative fixtures, exact
-literal inputs, public brands and the installed-package declaration checks.
-Keep schemas, handlers and application transport behind lazy loaders. Return
-handler data through bounded delivery. Size ceilings/import allowlists only shrink.
-The architecture checks are tripwires, not a sandbox for arbitrary callbacks.
+## Invariants to retain
 
-## Evidence and limits
+- Keep all isolated positive compiler controls ahead of negative fixtures, exact
+  literal inputs, public brands and the installed-package declaration checks.
+- Keep schemas, handlers and application transport behind lazy loaders.
+- Return handler data through bounded delivery; never write to stdout or stderr
+  outside `internal/process.ts`. The architecture guard enforces this.
+- Size ceilings and import allowlists only shrink.
+- The architecture checks are tripwires, not a sandbox for arbitrary callbacks.
 
-[Final live evidence](docs/implementation/final-live-evidence.json) records full
-passing typecheck/build/test IDs, all 17 test files, every public value export and
-concrete invariant checks. [Compatibility records](docs/implementation/final-compatibility.json)
-contain 42 actual emitted/bundled executions on Node 20.20.2, Node 24.16.0 and Bun
-1.3.14. The distribution fixture stays within its 107,929-byte ratchet. Hosted CI
-execution and other OS/runtime combinations are not claimed.
+## Limits
 
 The local pilot proves JSON persistence with fresh readers and receipt recovery;
 it does not prove SQLite or crash recovery. The remote pilot proves loopback HTTP,
-local errors before requests, authoritative guidance and resumable references;
-its service is a test fixture. Preparation purity, durable domain truth, transport
+local errors before requests, authoritative guidance and resumable references; its
+service is a test fixture. Preparation purity, durable domain truth, transport
 authentication and event-log durability remain application responsibilities.
 
 Consumer migration and wire cutover, Commander replacement, publication/package
 placement, optional transport/job/gate/identity/digest kits, plugin synchronization,
 live progress, streaming artifacts, raw-output escape hatches and interactive/TTY
-behavior remain outside delivered scope. No consumer repository was changed.
-The copied plugins under `plugins/` remain reference material; this implementation
-does not move or synchronize their upstream copies.
+behavior remain outside delivered scope. The copied plugins under `plugins/` are
+reference material; this repository does not synchronize their upstream copies.

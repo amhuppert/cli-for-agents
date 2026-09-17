@@ -1,16 +1,12 @@
 # Public contract
 
-Status: implemented private ESM TypeScript library, verified 2026-09-15. The launched
-[implementation contract](implementation-workflow.md)
-fixes this milestone's decisions; the workflow's seeded copy is source-of-truth
-entry 1. Earlier proposal/review documents preserve provenance. Their scaffold-only
-status and proposed API spellings are historical. Consumer repositories and wire
-formats have not been migrated.
+Status: implemented private ESM TypeScript library. The design proposal in this
+directory preserves provenance; its scaffold-only status and proposed API spellings
+are historical. Consumer repositories and wire formats have not been migrated.
 
 Read [adding a command](../implementation/add-a-command.md) for concise examples
-of plain/payload reads and writes, contexts, renderers and guidance. Read
-[final verification](../implementation/final-verification.md) for settled evidence.
-Source signatures are canonical; deep source/dist imports are not supported.
+of plain/payload reads and writes, contexts, renderers and guidance. Source
+signatures are canonical; deep source/dist imports are not supported.
 
 ## Public boundary
 
