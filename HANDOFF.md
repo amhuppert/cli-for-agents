@@ -52,6 +52,9 @@ cctl validate run build --scope full --queue-if-busy
 cctl validate run test --scope full --queue-if-busy
 ```
 
+`typecheck`, `build` and `test` all gate a merge, so a red suite blocks the change
+that broke it rather than being discovered commits later.
+
 For behavior changes, add a failing reproduction and use the registered test
 command with one exact `.test.mjs` path. Confirm the assertion fails for the
 missing behavior, then implement and keep the test green. Type/config-only and
