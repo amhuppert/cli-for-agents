@@ -1,22 +1,24 @@
 import type { RegistryNode } from "./registry.js";
-import { checkCaller, checkName, scalar } from "./input-model.js";
+import { checkCaller, checkName, invalidInput, scalar } from "./input-model.js";
 import type { CheckedInput, FlagEntry } from "./input-model.js";
 
 export type TokenResolution =
   | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string; readonly json: boolean }
   | { readonly kind: "leaf"; readonly node: RegistryNode; readonly input: CheckedInput; readonly json: boolean };
 
-function tokenValue(definition: FlagEntry["definition"]["value"], token: string | boolean): string | number | boolean {
-  if (definition.kind === "integer") {
-    if (typeof token !== "string" || !/^[+-]?[0-9]+$/.test(token)) throw new TypeError("Expected an integer token.");
-    return scalar(definition, Number(token));
-  }
-  if (definition.kind === "boolean") {
-    if (token === true || token === "true") return true;
-    if (token === false || token === "false") return false;
-    throw new TypeError("Expected a boolean token.");
-  }
-  return scalar(definition, token);
+function tokenValue(definition: FlagEntry["definition"]["value"], token: string | boolean, label: string, path: readonly string[]): string | number | boolean {
+  try {
+    if (definition.kind === "integer") {
+      if (typeof token !== "string" || !/^[+-]?[0-9]+$/.test(token)) throw new TypeError("Expected an integer token.");
+      return scalar(definition, Number(token));
+    }
+    if (definition.kind === "boolean") {
+      if (token === true || token === "true") return true;
+      if (token === false || token === "false") return false;
+      throw new TypeError("Expected a boolean token.");
+    }
+    return scalar(definition, token);
+  } catch (error) { if (!(error instanceof TypeError)) throw error; throw invalidInput(definition, label, path); }
 }
 
 /** Globals may surround route tokens; command-specific flags follow the leaf.
@@ -81,7 +83,7 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
       }
     } catch (error) { rememberError(error); }
   }
-  const bool = (name: string): boolean => Object.hasOwn(rawFlags, name) ? tokenValue({ kind: "boolean" }, rawFlags[name]![0]!) === true : false;
+  const bool = (name: string): boolean => Object.hasOwn(rawFlags, name) ? tokenValue({ kind: "boolean" }, rawFlags[name]![0]!, `flag --${name}`, ["flags", name]) === true : false;
   let json = false;
   try { json = bool("json"); } catch (error) { rememberError(error); }
   retainFormat(json);
@@ -103,7 +105,7 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   for (const [name, tokens] of Object.entries(rawFlags)) {
     if (["help", "json", "version"].includes(name)) continue;
     const entry = model.flags[name]!;
-    const values = tokens.map(token => tokenValue(entry.definition.value, token));
+    const values = tokens.map(token => tokenValue(entry.definition.value, token, `flag --${name}`, [entry.global ? "globals" : "flags", name]));
     if (entry.help.source === "selector") {
       if (values[0] !== true) throw new TypeError("Detail selectors must be selected, not negated.");
       selected.add(name);
@@ -119,8 +121,8 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   const args: Record<string, string | number | boolean | readonly (string | number | boolean)[]> = Object.create(null);
   let offset = 0;
   for (const arg of model.spec.args) {
-    if (arg.variadic) { args[arg.name] = positionals.slice(offset).map(value => tokenValue(arg.value, value)); offset = positionals.length; }
-    else if (offset < positionals.length) args[arg.name] = tokenValue(arg.value, positionals[offset++]!);
+    if (arg.variadic) { args[arg.name] = positionals.slice(offset).map(value => tokenValue(arg.value, value, `argument <${arg.name}>`, ["args", arg.name])); offset = positionals.length; }
+    else if (offset < positionals.length) args[arg.name] = tokenValue(arg.value, positionals[offset++]!, `argument <${arg.name}>`, ["args", arg.name]);
   }
   if (offset < positionals.length) throw new TypeError("Unexpected positional argument.");
   if (passthrough !== undefined) extra.passthrough = passthrough;

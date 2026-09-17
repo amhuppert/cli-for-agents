@@ -1,7 +1,7 @@
 import type { CommandSpec } from "../commands.js";
 import type { Argument, Flag } from "../input.js";
 import type { HelpFlag } from "../runtime/index.js";
-import type { Issue } from "../results.js";
+import { protocolLimits, type Issue } from "../results.js";
 import { bytes, id } from "../values.js";
 import type { Bytes } from "../values.js";
 import { assertFields, assertIdentifier, assertRecord, assertText, frozenJson } from "./validation.js";
@@ -10,8 +10,8 @@ export const frameworkFlags = Object.freeze({ help: "boolean", json: "boolean", 
 /** Retains input identity across the synchronous parser's refusal boundary. */
 export class InputValidationError extends TypeError {
   readonly issue: Issue;
-  constructor(label: string, path: readonly string[]) {
-    super(`Missing required ${label}.`);
+  constructor(label: string, path: readonly string[], message = `Missing required ${label}.`) {
+    super(message);
     this.issue = Object.freeze({ code: "invalid_value", message: this.message, path: Object.freeze([...path]) });
   }
 }
@@ -39,6 +39,29 @@ export function scalar(value: HelpFlag["value"], input: unknown): string | numbe
     case "file": if (typeof input === "string" && input.length > 0 && !input.includes("\0")) return input; break;
   }
   throw new TypeError("Input does not match its declared value kind or bounds.");
+}
+/** Diagnostics describe declarations, never caller values (which may be secrets). */
+export function invalidInput(value: HelpFlag["value"], label: string, path: readonly string[]): InputValidationError {
+  let expected: string;
+  switch (value.kind) {
+    case "integer": expected = `a safe integer${value.min === undefined ? "" : ` >= ${value.min}`}${value.max === undefined ? "" : ` <= ${value.max}`}`; break;
+    case "string": expected = `text${value.minLength === undefined ? "" : ` with length >= ${value.minLength}`}${value.maxLength === undefined ? "" : ` with length <= ${value.maxLength}`}`; break;
+    case "enum": expected = `one of ${value.values.map(item => JSON.stringify(item)).join(", ")}`; break;
+    case "pattern": expected = value.description; break;
+    case "boolean": expected = "true or false"; break;
+    case "url": expected = "an absolute URL"; break;
+    case "id": expected = `a valid ${value.domain} identifier`; break;
+    case "file": case "output-path": expected = "a nonempty file path"; break;
+  }
+  const fits = (text: string): boolean => new TextEncoder().encode(JSON.stringify(text)).byteLength <= protocolLimits.diagnosticSummary;
+  let message = `Invalid ${label}; expected ${expected}.`;
+  if (!fits(message)) message = `Invalid ${label}; see --help for the accepted ${value.kind} values.`;
+  if (!fits(message)) message = "Invalid input; see its issue path and --help for the accepted values.";
+  return new InputValidationError(label, path, message);
+}
+function callerValue(value: HelpFlag["value"], input: unknown, label: string, path: readonly string[]): string | number | boolean {
+  try { return scalar(value, input); }
+  catch (error) { if (!(error instanceof TypeError)) throw error; throw invalidInput(value, label, path); }
 }
 function checkValue(value: Flag["value"]): void {
   assertRecord(value);
@@ -198,9 +221,9 @@ export function checkCaller(model: InputModel, caller: object, suggestion: boole
     if (many) {
       if (!Array.isArray(raw)) throw new TypeError("Expected repeated input array.");
       if (required && raw.length === 0) throw new InputValidationError(label, path);
-      return raw.map(item => scalar(definition.value, item));
+      return raw.map(item => callerValue(definition.value, item, label, path));
     }
-    return scalar(definition.value, raw);
+    return callerValue(definition.value, raw, label, path);
   };
   assertFields(suppliedArgs, [], model.spec.args.map(a => a.name));
   for (const arg of model.spec.args) {
