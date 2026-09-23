@@ -2,7 +2,10 @@ import { bytes, milliseconds } from "../values.js";
 
 export function checkLimit(limit: number): void { bytes(limit); }
 export function checkDuration(duration: number): void { milliseconds(duration); }
-export function overflow(): RangeError { return new RangeError("Input exceeds byte limit"); }
+export class InputOverflowError extends RangeError {
+  constructor() { super("Input exceeds byte limit"); }
+}
+export function overflow(): RangeError { return new InputOverflowError(); }
 export class ArtifactCollisionError extends Error {
   constructor() { super("Atomic write collision: existing file differs"); }
 }

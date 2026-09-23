@@ -118,7 +118,12 @@ Inspect doctor/continuation and saved state before repeating a mutation.
 `defineErrors` owns code/class/default refusal rationale. Connection failures
 centrally receive the registered read doctor; a continuation supplements it.
 Exits are 0 success, 1 failure, 2 usage/local input, 3 connection/authentication and
-4 version mismatch. Later rendering/guidance/delivery failures preserve an existing
+4 version mismatch. A local input refusal names its stage in `message` (read,
+UTF-8, JSON, file value or thrown decoder) and, in `why`, the flag, argument or
+payload, its quoted path or stdin, and the cause, including the JSON parser's line and
+column when available. Long paths are elided, secret paths are omitted, and file contents
+and exception text are never echoed; returned schema issues keep their paths in `issues`.
+Later rendering/guidance/delivery failures preserve an existing
 domain classification and appear as secondary kernel failures. An otherwise
 successful operation with a conflict/output failure becomes exit 1 and retains
 known effect/recovery. `why` and failure issues occur only inside `error`;

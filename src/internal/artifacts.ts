@@ -9,7 +9,7 @@ import { bytes } from "../values.js";
 import { decodeWireEnvelope, kernelError, protocolLimits } from "../results.js";
 import { assertArtifactBasename, binaryBytes } from "./binary.js";
 import { ArtifactCollisionError, hasCode } from "./host.js";
-import { assertArtifactMetadata, assertFields, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
+import { assertArtifactMetadata, assertFields, boundedSummary, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
 /** Resolves canonical roots, validates policy and freezes an app-free snapshot. */
 export async function resolveArtifactPolicy(policy: ArtifactPolicy, host: Host): Promise<ResolvedArtifactPolicy> {
   const snapshot = frozenJson(policy);
@@ -32,17 +32,9 @@ function within(destination: string, root: string): boolean {
 }
 class ArtifactWriteError extends TypeError {}
 function artifactWriteError(cause: string, destination: string, directory: string): ArtifactWriteError {
-  const describe = (target: string, root: string): string =>
-    `Artifact delivery failed for ${JSON.stringify(target)} (artifact directory ${JSON.stringify(root)}): ${cause}`;
-  let message = describe(destination, directory);
-  if (new TextEncoder().encode(JSON.stringify(message)).length > protocolLimits.diagnosticSummary) {
-    const shorten = (value: string): string => value.length <= 80 ? value : `${value.slice(0, 40)}…${value.slice(-39)}`;
-    message = describe(shorten(destination), shorten(directory));
-  }
-  if (new TextEncoder().encode(JSON.stringify(message)).length > protocolLimits.diagnosticSummary) {
-    message = `Artifact delivery failed: ${cause} Destination and artifact directory paths exceed the diagnostic limit.`;
-  }
-  return new ArtifactWriteError(message);
+  return new ArtifactWriteError(boundedSummary(
+    path => `Artifact delivery failed for ${JSON.stringify(path(destination))} (artifact directory ${JSON.stringify(path(directory))}): ${cause}`,
+    `Artifact delivery failed: ${cause} Destination and artifact directory paths exceed the diagnostic limit.`, protocolLimits.diagnosticSummary));
 }
 /** One bounded writer for automatic spill, explicit out and finite binary exports. */
 export async function writeArtifact(request: {

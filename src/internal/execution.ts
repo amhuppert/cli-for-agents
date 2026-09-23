@@ -13,6 +13,7 @@ import { assertFields, frozenJson } from "./validation.js";
 import type { AnyResult, OperationEffect, KernelCode } from "../results.js";
 import type { JsonValue } from "../values.js";
 import { resolveLocalInput } from "./local-input.js";
+import type { InputDiagnostic } from "./local-input.js";
 import { kernelError, kernelErrors, checkedError, unknownAcknowledgmentFact } from "../results.js";
 import type { ParsedInvocation } from "./registry.js";
 
@@ -57,8 +58,8 @@ export type CompletedExecution<Code extends string = string> = {
  */
 
 class ContractFailure extends Error {}
-function failure(code: KernelCode, issues?: readonly Issue[]): AnyResult {
-  return Object.freeze({ ok: false, error: kernelError(code, { message: kernelErrors[code].description, ...(issues ? { issues } : {}) }) });
+function failure(code: KernelCode, issues?: readonly Issue[], diagnostic?: InputDiagnostic): AnyResult {
+  return Object.freeze({ ok: false, error: kernelError(code, { message: kernelErrors[code].description, ...diagnostic, ...(issues ? { issues } : {}) }) });
 }
 function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => "", offline = false): ExecutionResult {
   if (result.ok && operation.effect !== "read" && operation.effect !== "applied") throw new TypeError("Invalid successful effect.");
@@ -91,7 +92,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
   const errors = commandErrors(invocation.command);
   const local = await resolveLocalInput(invocation, request);
   const skipped = (result: AnyResult): CompletedExecution<FamilyCode<D>> => ({ execution: outcome(result, initial) as ExecutionResult<FamilyCode<D>>, secondary: [], postOperation: "skipped" });
-  if (!local.ok) return skipped(failure(local.code, local.issues));
+  if (!local.ok) return skipped(failure(local.code, local.issues, local.diagnostic));
   let run: (input: unknown) => Promise<unknown>;
   let unknownEffect: Extract<OperationEffect, { effect: "unknown" }> | undefined;
   try {

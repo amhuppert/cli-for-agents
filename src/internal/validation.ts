@@ -69,6 +69,15 @@ export function assertJsonValue(value: unknown): asserts value is JsonValue {
 }
 
 /** Count the actual JSON representation, including quotes, escapes and UTF-8 expansion. */
+/** Fit path-bearing prose to a serialized limit: full paths, then middle-elided paths, then the fallback. */
+export function boundedSummary(render: (path: (value: string) => string) => string, fallback: string, limit: number): string {
+  const shorten = (value: string): string => value.length <= 80 ? value : `${value.slice(0, 40)}…${value.slice(-39)}`;
+  for (const path of [(value: string) => value, shorten]) {
+    const summary = render(path);
+    if (new TextEncoder().encode(JSON.stringify(summary)).byteLength <= limit) return summary;
+  }
+  return fallback;
+}
 export function assertSerializedLimit(value: unknown, limit: number): void {
   assertNonnegativeInteger(limit);
   if (new TextEncoder().encode(serializedJson(value)).byteLength > limit) {
