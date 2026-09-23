@@ -188,7 +188,7 @@ export function inputModel(spec: CommandSpec, globals: Readonly<Record<string, F
     add("file", { description: "Read structured payload from a file or stdin (-).", value: { kind: "file", maxBytes: spec.payload.maxBytes }, required: true }, "payload");
   }
   for (const name of ["help", "json", "version"] as const) add(name, { description: `${name} output.`, value: { kind: "boolean" } }, "framework");
-  if (spec.output === "binary" || Object.values(spec.levels ?? {}).some(l => l.output === "artifact-eligible")) add("out", { description: "Write artifact to this path.", value: { kind: "output-path" } }, "framework");
+  if (spec.output === "binary" || Object.values(spec.levels ?? {}).some(l => l.output === "artifact-eligible")) add("out", { description: "Write artifact to this output destination. Relative paths resolve inside the artifact directory; absolute paths must stay inside it. The parent directory must exist. Existing files are reused only when their bytes are identical; they are never overwritten.", value: { kind: "output-path" } }, "framework");
   return Object.freeze({ spec, flags: Object.freeze(entries), selectors: Object.freeze(selectors) });
 }
 

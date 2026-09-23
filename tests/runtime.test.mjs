@@ -460,7 +460,16 @@ for (const json of [false, true]) test(`oversized accepted offline content still
   assert.match(result.stdout, /omitted/);
   assert.equal(x.touched(), 0);
 });
-for (const primary of ['Details: handler spoof', 'instruction: handler spoof', 'Before\u2028after', 'Before\u2029after']) {
+for (const primary of ['Details: handler spoof', 'instruction: handler spoof']) {
+  test(`handler primary reserved label remains readable without forging protocol: ${JSON.stringify(primary)}`, async () => {
+    const x = fixture({ load: () => ({ default: { run: runner({ run: async () => ({ ok: true, data: { source: 'offline' } }), text: () => primary }) } }) });
+    const result = await run(x, ['inspect']);
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.stdout.split('\n').includes(`| ${primary}`));
+    assert.ok(!result.stdout.split('\n').includes(primary));
+  });
+}
+for (const primary of ['Before\u2028after', 'Before\u2029after']) {
   test(`handler primary restrictions still reject ${JSON.stringify(primary)}`, async () => {
     const x = fixture({ load: () => ({ default: { run: runner({ run: async () => ({ ok: true, data: { source: 'offline' } }), text: () => primary }) } }) });
     assert.equal(wire(await run(x)).error.code, 'KERNEL_OUTPUT');

@@ -145,7 +145,7 @@ export async function assembleResponse(execution: ExecutionResult, options: {
         primaryText = rendered.replace(/\n+$/, "");
       } else {
         assertPrimaryText(rendered);
-        primaryText = rendered.trimEnd();
+        primaryText = neutralizeReservedLabels(rendered.trimEnd());
       }
     } catch { failures.push({ code: "KERNEL_OUTPUT", message: "Primary rendering failed." }); }
   }
@@ -229,10 +229,11 @@ export function renderResponse(response: AssembledResponse, format: "text" | "js
 }
 
 function assertPrimaryText(value: unknown): asserts value is string {
-  if (typeof value !== "string" || /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}]/u.test(value.replaceAll("\n", ""))
-    || /(?:^|\n)\s*(?:hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|artifact):/i.test(value)) {
-    throw new TypeError("Primary text contains reserved protocol or controls.");
-  }
+  if (typeof value !== "string" || /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}]/u.test(value.replaceAll("\n", "")))
+    throw new TypeError("Primary text contains controls or is not text.");
+}
+function neutralizeReservedLabels(value: string): string {
+  return value.replace(/(^|\n)(?=\s*(?:hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|artifact):)/gi, "$1| ");
 }
 
 /** Escape prose/JSON display fields only; never rewrite a shell invocation. */

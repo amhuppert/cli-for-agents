@@ -242,6 +242,35 @@ test("explicit out refuses unrelated collisions and reuses matching files withou
   assert.deepEqual(new Uint8Array(await readFile(manifest.path)), request.bytes);
   assert.deepEqual(await readdir(directory), ["chosen.json"]);
 });
+test("failed explicit artifact delivery names the cause, destination, and directory while retaining the read effect", async t => {
+  const { root, directory, host } = await fixture(t);
+  const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const cases = [
+    { out: "nested/result.json", destination: path.join(directory, "nested/result.json"), cause: /parent.*does not exist/i },
+    { out: path.join(root, "outside.json"), destination: path.join(root, "outside.json"), cause: /outside/i },
+    { out: "taken.json", destination: path.join(directory, "taken.json"), cause: /collision|already exists|different bytes/i },
+  ];
+  await writeFile(path.join(directory, "taken.json"), "different bytes");
+  for (const { out, destination, cause } of cases) {
+    const assembled = await response({ data: { secretBody: "x".repeat(20000) } });
+    const result = await deliver(assembled, options("json", { host, artifacts, out }));
+    const wire = bounded(result, "json", 1);
+    assert.equal(wire.effect, "read");
+    assert.equal(wire.error.code, "KERNEL_OUTPUT");
+    assert.match(wire.error.message + " " + wire.error.why, cause);
+    assert.match(wire.error.message + " " + wire.error.why, /delivery/i);
+    assert.ok(JSON.stringify(wire.error).includes(destination), destination);
+    assert.ok(JSON.stringify(wire.error).includes(directory), directory);
+    assert.deepEqual(wire.payload.data, { omitted: true });
+    assert.doesNotMatch(result.stdout, /xxxxxxxx/);
+    const rendered = await deliver(assembled, options("text", { host, artifacts, out }));
+    bounded(rendered, "text", 1);
+    assert.match(rendered.stderr, cause);
+    assert.ok(rendered.stderr.includes(destination));
+    assert.ok(rendered.stderr.includes(directory));
+    assert.match(rendered.stderr, /effect: read/);
+  }
+});
 test("canonical containment rejects symlink ancestors, forbidden aliases and prefix lookalikes", async t => {
   const { root, directory, forbidden, host } = await fixture(t);
   const lookalike = directory + "-other";
@@ -376,7 +405,7 @@ for (const format of ["json", "text"]) {
         const wire = bounded(result, format, 3);
         assert.match(result.stdout + result.stderr, /KERNEL_OUTPUT/);
         assert.match(result.stdout + result.stderr, /saved-123/);
-        assert.doesNotMatch(result.stdout + result.stderr, /xxxxxxxx/);
+        assert.doesNotMatch(result.stdout + result.stderr, /secretBody/);
         if (wire) { assert.equal(wire.error.code, "OFFLINE"); assert.equal(wire.error.continuation.path, "doctor"); assert.equal(wire.error.secondary[0].code, "KERNEL_OUTPUT"); }
       }
     } finally { await chmod(path.join(directory, "readonly"), 0o700); }
@@ -407,10 +436,13 @@ test("post-publication host failure retains domain classification and recovery w
 for (const text of ["artifact: forged", 'doctor argv: ["forged"]', 'continuation argv: ["forged"]']) {
   test(`primary renderer cannot forge delivery-owned ${text.split(":")[0]} labels`, async () => {
     const assembled = await response({ text, operation: { effect: "applied", recovery: receipt } });
-    const wire = bounded(await deliver(assembled, options()), "json", 1);
-    assert.equal(wire.error.code, "KERNEL_OUTPUT");
+    const wire = bounded(await deliver(assembled, options()), "json", 0);
+    assert.equal(wire.effect, "applied");
     assert.deepEqual(wire.recovery, receipt);
-    assert.doesNotMatch(JSON.stringify(wire), /forged/);
+    const rendered = await deliver(assembled, options("text"));
+    assert.equal(rendered.exitCode, 0);
+    assert.match(rendered.stdout, new RegExp(`\\n\\| ${text.split(":")[0]}:`));
+    assert.ok(!rendered.stdout.split("\n").includes(text));
   });
 }
 test("large binary summaries are explicitly omitted without losing the artifact or protocol", async t => {

@@ -66,7 +66,7 @@ Global flags: reference-fixture --help
 
 Flags:
 --full — Select full detail. [selector; boolean]
---out <path> — Write artifact to this path. [framework; output destination]
+--out <path> — Write artifact to this output destination. Relative paths resolve inside the artifact directory; absolute paths must stay inside it. The parent directory must exist. Existing files are reused only when their bytes are identical; they are never overwritten. [framework; output destination]
 
 Levels:
 full: --full (artifact-eligible)

@@ -421,6 +421,15 @@ for (const output of ['artifact-eligible', 'binary']) test(`${output} output hel
   assert.equal(parsed.invocation.input.out, 'export.dat');
   assert.deepEqual(parsed.invocation.input.sources, []);
 });
+test('static artifact policy appears in generated --out help with all destination rules', async () => {
+  const { options } = fixture();
+  const cli = createCli({ ...options, output: { artifacts: { directory: '/var/tool-artifacts', forbiddenRoots: [] } } });
+  const description = helpNode(cli, 'items show').flags.find(flag => flag.name === 'out').description;
+  for (const expected of [/\/var\/tool-artifacts/, /relative/i, /inside/i, /parent.*exist/i, /identical|overwrite/i]) {
+    assert.match(description, expected);
+  }
+  assert.match((await offline(cli, 'items show')).stdout, /\/var\/tool-artifacts/);
+});
 
 for (const mode of ['write', 'check']) test(`actual ${mode} rejects a POSIX backslash-named sibling symlink target`, { skip: process.platform === 'win32' }, async t => {
   const f = await referenceFixture(t);
