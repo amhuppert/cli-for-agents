@@ -13,7 +13,7 @@ import type { ContractFixtures, JsonTestRun } from "./contracts.js";
 const budget = bytes(8192);
 const output = { maxBytes: budget, artifacts: { directory: "/artifacts", forbiddenRoots: [] } };
 const base = { path: "inspect", summary: "Inspect", description: "Inspect state", requires: "none", effects: "read", args: [], flags: {} } as const;
-const host = (): TestHost => createTestHost({ files: { "/artifacts/.keep": "", "/input.json": "{}" } });
+const host = (): TestHost => createTestHost({ files: { "/input.json": "{}" } });
 async function json<C>(cli: Cli<C>, argv: readonly string[], injected: TestHost): Promise<JsonTestRun> {
   const result = await runForTest(cli, argv, { host: injected, format: "json" });
   if (result.format !== "json") throw new Error("Expected JSON fixture result.");

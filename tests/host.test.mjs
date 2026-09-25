@@ -396,3 +396,60 @@ test("Test file fixtures reject directory-only path spellings", () => {
     assert.throws(() => createTestHost({ files: { [path]: "data" } }));
   }
 });
+
+for (const flavor of ["Node", "test"]) {
+  test(`${flavor} host ensures nested directories idempotently without replacing entries`, async (t) => {
+    const root = flavor === "Node" ? await temporary(t) : "/root";
+    const host = flavor === "Node" ? await nodeHost() : createTestHost({ directories: [root] });
+    const nested = join(root, "a/b/c");
+    await host.files.ensureDirectory(nested, signal());
+    assert.equal(await host.files.kind(nested), "directory");
+    assert.equal(await host.files.kind(join(root, "a")), "directory");
+    await host.files.ensureDirectory(nested, signal());
+    await host.files.ensureDirectory(join(root, "a"), signal());
+    await host.files.writeAtomic(join(nested, "file"), encode("data"), "reuse-identical-or-refuse");
+    assert.deepEqual(await host.files.read(join(nested, "file"), bytes(4), signal()), encode("data"));
+    await assert.rejects(host.files.ensureDirectory(join(nested, "file"), signal()), { code: "EEXIST" });
+    await assert.rejects(host.files.ensureDirectory(join(nested, "file/child/deeper"), signal()), { code: "ENOTDIR" });
+    assert.equal(await host.files.kind(join(nested, "file")), "file");
+    assert.deepEqual(await host.files.read(join(nested, "file"), bytes(4), signal()), encode("data"));
+    const aborted = new AbortController();
+    aborted.abort();
+    await assert.rejects(host.files.ensureDirectory(join(root, "cancelled/child"), aborted.signal), { name: "AbortError" });
+    assert.equal(await host.files.kind(join(root, "cancelled")), "missing");
+  });
+}
+
+test("Test host seeds explicit directories idempotently without recording calls", async () => {
+  const host = createTestHost({ directories: ["/artifacts", "/a/b", "/a", "/a/./b", "/a/b/"], files: { "/a/b/file": "x", "/data/file": "y" } });
+  assert.deepEqual(host.calls, []);
+  assert.equal(await host.files.kind("/artifacts"), "directory");
+  assert.equal(await host.files.kind("/a/b"), "directory");
+  assert.equal(await host.files.kind("/data"), "directory");
+  assert.deepEqual(Object.keys(host.filesSnapshot()).sort(), ["/a/b/file", "/data/file"]);
+  await host.files.writeAtomic("/artifacts/out", encode("ok"), "reuse-identical-or-refuse");
+  assert.deepEqual(host.calls, [{ kind: "kind", path: "/artifacts" }, { kind: "kind", path: "/a/b" }, { kind: "kind", path: "/data" }, { kind: "write", path: "/artifacts/out" }]);
+  await host.files.ensureDirectory("/made", signal());
+  assert.deepEqual(host.calls.at(-1), { kind: "ensureDirectory", path: "/made" });
+  for (const options of [
+    { directories: ["/a"], files: { "/a": "file" } },
+    { directories: ["/a/b"], files: { "/a": "file" } },
+    { directories: ["/a/b"], files: { "/a/b": "file" } },
+    { directories: "/a" },
+    { directories: [3] },
+  ]) assert.throws(() => createTestHost(options), undefined, JSON.stringify(options));
+});
+
+test("Captured hosts record directory creation per invocation without changing its receiver", async () => {
+  const { captureHost } = await import("../dist/internal/test-host-capture.js");
+  const host = createTestHost();
+  const calls = [];
+  const captured = captureHost(host, calls);
+  await captured.files.ensureDirectory("/artifacts/nested", signal());
+  assert.deepEqual(calls, [{ kind: "ensureDirectory", path: "/artifacts/nested" }]);
+  assert.equal(await host.files.kind("/artifacts/nested"), "directory");
+  const aborted = new AbortController();
+  aborted.abort();
+  await assert.rejects(captured.files.ensureDirectory("/cancelled", aborted.signal), { name: "AbortError" });
+  assert.deepEqual(calls.map(call => call.path), ["/artifacts/nested", "/cancelled"]);
+});

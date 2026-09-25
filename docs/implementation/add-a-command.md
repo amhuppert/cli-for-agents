@@ -126,14 +126,29 @@ export default payloadRead<typeof answerSpec, Workspace, Claim, typeof errors.de
 types come from the linked example modules. The runtime reads the generated
 `--file`, parses JSON and calls the decoder before context acquisition. Schema
 implementations may be application dependencies; keep them in the lazy module.
-Raw text ingestion uses a file-valued flag instead of a JSON payload declaration.
+`decode` accepts any Standard Schema v1 value directly, including a Zod schema such
+as `z.object({ nodeId: z.string(), text: z.string() })`; no adapter is needed under
+`exactOptionalPropertyTypes`. Raw text ingestion uses a file-valued flag instead of
+a JSON payload declaration.
 
 ### Structured write
 
 The [claim mutation](../../examples/local-workspace/apply.handler.ts) uses
-`mutation<typeof applySpec, Workspace, Claim, typeof errors.definitions, {}, Claim>`.
-Its decoder is `claimSchema`; `prepare` checks the node and returns
-`{ ok: true, value: payload }` or a catalog failure. Its commit receives
+`mutation<typeof applySpec, Workspace, Claim, typeof errors.definitions, {}, Claim, ClaimPreview>`;
+the last parameter types the preview. Its decoder is `claimSchema`; `prepare`
+checks the node and returns an opaque value plus a JSON-safe preview, or a catalog
+failure:
+
+```ts
+return { ok: true, value: payload, preview: { nodeId: node.id, nodeTitle: node.title,
+  characters: payload.text.length, existingClaims } };
+```
+
+The value may be any application object (a handle, a `Map`, a parsed extraction);
+the kernel never serializes it and hands it only to commit. Omit `preview` when there
+is nothing to show: an explicit `preview: undefined` is not JSON and fails both the
+check and the apply with `KERNEL_CONTRACT`, so spread a conditional preview
+(`...(counts ? { preview: counts } : {})`) instead of assigning `undefined`. Its commit receives
 `prepared.value` and `prepared.payloadHash`, saves one receipt, and returns:
 
 ```ts
@@ -148,21 +163,29 @@ return {
 ```
 
 The declaration names `claim validate`; that twin shares decoding and preparation
-and cannot call commit. Preparation purity still needs a domain test:
+and cannot call commit. It returns `{ valid: true, payloadHash, preview }` and, when
+the invocation replays faithfully, the hint `Apply the validated payload: workspace
+claim apply --file=<path>`. The generated hint keeps arguments, globals and file
+paths, and is omitted for stdin, supplied secrets and passthrough tokens. A
+successful preparation may instead return its own `hint` or `instruction`; that
+guidance appears on the check only, and wins over the generated hint. A refusal's
+guidance applies to check and apply alike. Write prepares again; the payload hash
+identifies bytes, not an approval. Preparation purity still needs a domain test:
 compare durable state before/after the twin, then observe the receipt with a fresh
 reader after apply. The library cannot prove that application services are pure.
 
 ## 3. Wire context, doctor and output policy
 
 [createWorkspaceCli](../../examples/local-workspace/cli.ts) supplies the family,
-command list, parent groups and `doctor: invocation(doctor, {})`. The doctor's
+command list, parent groups and `doctor: invocation(doctor, {})`. An optional
+`description` gives the root help and command reference their prose. The doctor's
 spec uses `requires: 'none'`. Every CLI registers a runnable read doctor because
 context acquisition can produce exit 3 even without domain connection codes.
 
 A provider receives typed `globals`, `env`, `host` and `signal`, and returns
 `{ ok: true, app, release? }` or `{ ok: false, error }`. Load application services
 inside the provider. Optional release runs once after guidance collection and
-artifact-policy resolution, including cancellation/failure paths.
+artifact-policy capture, including cancellation/failure paths.
 
 ```ts
 output: {
@@ -177,9 +200,14 @@ output: {
 },
 ```
 
-The selected directory must already exist. Delivery retains an immutable host-only
-policy after app release. `--out` obeys the same canonical containment and collision
-rules. `binaryArtifact({ bytes, mediaType, basename, summary })` always writes an
+The resolver runs while the app is alive; the kernel keeps a detached snapshot, so
+forbidden roots derived from app state survive release. Do not create the artifact
+directory yourself: when a response spills, uses `--out`, or exports binary data,
+delivery refuses a directory inside a forbidden root, then creates the directory and
+its missing ancestors. A response that fits inline never touches it. Domain storage
+setup stays the application's (the example's `init` creates only `data`). `--out`
+obeys the same canonical containment and collision rules, and its own nested parent
+directory must already exist. `binaryArtifact({ bytes, mediaType, basename, summary })` always writes an
 artifact; declare `output: 'binary'`. See the [export handler](../../examples/local-workspace/export.handler.ts).
 Use `page` on already-paged data with a read-only `invocation` reveal when cut.
 
@@ -200,13 +228,17 @@ application owns durable event logging.
 ## 5. Verify and launch
 
 Add a behavior test through the public runtime and run it red/green with its exact
-registered `.test.mjs` path. Reuse [consumer contract cases](consumer-testkit.md)
-with all seven domain-specific callbacks. Test required guidance and recovery
-through artifact failure, plus actual projection parity where custom text exists.
+registered `.test.mjs` path. `createTestHost()` needs no seeded artifact directory;
+use `createTestHost({ directories })` only for explicit empty-directory states.
+`runForTest` renders the requested `format`; a contradictory explicit `--json` flag
+throws. Reuse [consumer contract cases](consumer-testkit.md) with all seven
+domain-specific callbacks. Test required guidance and recovery through artifact
+failure, plus projection parity where custom text exists; the parity helper checks
+the field inventories you supply, so assert prose-only facts directly.
 Then run the full typecheck/build/test commands in [README](../../README.md).
 
 Executables call `await main(cli)`; embedded callers use
 `runCli(cli, { argv, env, signal, host? })` and receive bounded streams/exit code.
 `main` owns process output, signals and draining. Build application bundles through
-the registered pilot/distribution tests; keep the library unpublished and leave
-consumer migration to a separate task.
+the registered pilot/distribution tests. The library stays unpublished; other local
+projects consume a fresh private snapshot as described in the [README](../../README.md).

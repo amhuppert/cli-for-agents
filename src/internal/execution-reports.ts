@@ -1,9 +1,10 @@
 import type { AnyResult, ErrorCatalog, ErrorDefinitions, OperationEffect, ReportedRecovery } from "../results.js";
 import { checkedError, kernelError, recoveryFacts } from "../results.js";
 import { hint, instruction } from "../guidance/index.js";
+import type { HandlerGuidance } from "../guidance/index.js";
 import type { AnyBinaryArtifactRequest } from "../disclosure.js";
 import { checkBinaryRequest } from "./binary.js";
-import type { NonEmpty } from "../values.js";
+import type { JsonValue, NonEmpty } from "../values.js";
 import { executableRecord } from "./runner-modules.js";
 import { assertFields, assertRecord, frozenJson } from "./validation.js";
 
@@ -24,20 +25,24 @@ export function checkedResult(value: unknown, errors: ErrorCatalog<ErrorDefiniti
   } else if (result["ok"] === false && !binaryRequest) {
     assertFields(result, ["ok", "error"], ["data", "hint", "instruction"]);
   } else throw new TypeError("Invalid result discriminant.");
-  if (Object.hasOwn(result, "hint") && Object.hasOwn(result, "instruction")) throw new TypeError("Conflicting handler guidance.");
-  const guidance: { hint?: ReturnType<typeof hint>; instruction?: ReturnType<typeof instruction> } = {};
-  if (Object.hasOwn(result, "hint")) {
-    const value = result["hint"]; assertRecord(value); assertFields(value, ["invocation", "action"]);
-    guidance.hint = hint(value["invocation"] as import("../commands.js").Invocation, value["action"] as string);
-  }
-  if (Object.hasOwn(result, "instruction")) {
-    const value = result["instruction"]; assertRecord(value); assertFields(value, ["ownerId", "text"]);
-    guidance.instruction = instruction(value["ownerId"] as string, value["text"] as string);
-  }
+  const guidance = checkedGuidance(result);
   const checked = { ...result, ...guidance, ...(binaryRequest ? { binary: binaryRequest } : {}),
     ...(result["ok"] === false ? { error: checkedError(result["error"], errors) } : {}) };
   // Exact result/effect and JSON checks above establish the erased report boundary.
   return Object.freeze(checked) as AnyResult;
+}
+/** Handler guidance is one optional tier, rebuilt through its bounded constructor. */
+function checkedGuidance(record: Readonly<Record<string, unknown>>): HandlerGuidance {
+  if (Object.hasOwn(record, "hint") && Object.hasOwn(record, "instruction")) throw new TypeError("Conflicting handler guidance.");
+  if (Object.hasOwn(record, "hint")) {
+    const value = record["hint"]; assertRecord(value); assertFields(value, ["invocation", "action"]);
+    return { hint: hint(value["invocation"] as import("../commands.js").Invocation, value["action"] as string) };
+  }
+  if (Object.hasOwn(record, "instruction")) {
+    const value = record["instruction"]; assertRecord(value); assertFields(value, ["ownerId", "text"]);
+    return { instruction: instruction(value["ownerId"] as string, value["text"] as string) };
+  }
+  return {};
 }
 function reported(value: unknown): ReportedRecovery {
   const checked = frozenJson(value); assertRecord(checked); assertFields(checked, ["kind", "references"]);
@@ -65,10 +70,16 @@ export function checkedWrite(value: Readonly<Record<string, unknown>>, operation
   return result;
 }
 
-/** Preparation values may be opaque app objects; refusals use normal checked error/guidance fields. */
+/** Preparation values may be opaque app objects; only the preview and guidance are
+ * serialized. Refusals use normal checked error/guidance fields. */
 export function checkedPreparation(value: unknown, errors: ErrorCatalog<ErrorDefinitions>): import("../results.js").Preparation<unknown> {
   const prepared = executableRecord(value);
-  if (prepared["ok"] === true) { assertFields(prepared, ["ok", "value"]); return { ok: true, value: prepared["value"] }; }
+  if (prepared["ok"] === true) {
+    assertFields(prepared, ["ok", "value"], ["preview", "hint", "instruction"]);
+    const { ok: _ok, value: opaque, ...visible } = prepared;
+    const checked = frozenJson(visible);
+    return { ok: true, value: opaque, ...(Object.hasOwn(checked, "preview") ? { preview: checked["preview"] as JsonValue } : {}), ...checkedGuidance(checked) };
+  }
   if (prepared["ok"] === false) {
     assertFields(prepared, ["ok", "error"], ["hint", "instruction"]);
     const result = checkedResult(prepared, errors, false);

@@ -1,4 +1,4 @@
-import type { Cli, HelpNode } from "../runtime/index.js";
+import type { Cli, HelpNode, ReferenceSelection } from "../runtime/index.js";
 import type { Command } from "../commands.js";
 import { cliConfiguration, cliRegistry, registryState } from "./registry.js";
 import { commandData, flowSteps } from "./declarations.js";
@@ -74,14 +74,16 @@ export function projectHelp<Contexts>(cli: Cli<Contexts>, path: string): HelpNod
   }), examples: Object.freeze(examples) });
 }
 
-/** One text projection serves offline runtime help and generated references. */
-export function renderHelp<Contexts>(cli: Cli<Contexts>, path: string): string {
+/** One text projection serves offline runtime help and generated references. A
+ * reference may limit child navigation to the nodes it documents. */
+export function renderHelp<Contexts>(cli: Cli<Contexts>, path: string, documented?: ReadonlySet<string>): string {
   const node = projectHelp(cli, path);
   const name = registryState(cliRegistry(cli)).name;
-  const lines = [node.summary, node.description, "", ...node.usage.map(usage => `Usage: ${usage}`)];
+  // Structured help keeps both fields; text omits empty or repeated prose.
+  const lines = [node.summary, ...(node.description && node.description !== node.summary ? [node.description] : []), "", ...node.usage.map(usage => `Usage: ${usage}`)];
   const section = (title: string, rows: readonly string[]): void => { if (rows.length) lines.push("", `${title}:`, ...rows); };
   if (node.effects) section("Effects", [node.effects]);
-  section("Commands", node.children.map(child => `${name} ${child.path} — ${child.summary}`));
+  section("Commands", node.children.filter(child => !documented || documented.has(child.path)).map(child => `${name} ${child.path} — ${child.summary}`));
   section("Arguments", node.arguments.map(arg => `${arg.name}${arg.variadic ? "..." : ""} — ${arg.description} (${arg.required ? "required" : "optional"}; ${describeValue(arg.value)}${arg.default !== undefined ? `; default: ${JSON.stringify(arg.default)}` : ""})`));
   const sharedNames = new Set(path ? projectHelp(cli, "").flags.map(flag => flag.name) : []);
   if (path) lines.push("", `Global flags: ${name} --help`);
@@ -107,9 +109,32 @@ export function renderExitCodes<Contexts>(cli: Cli<Contexts>): string {
   const inventory = exitCodeInventory(cli);
   return `${inventory.exits.map(entry => `${entry.code}: ${entry.exitClass} — ${entry.description}`).join("\n")}\n\n${Object.entries(inventory.errors).map(([code, entry]) => `${code}: exit ${entry.exitCode} (${entry.exitClass}) — ${entry.description}`).join("\n")}\n`;
 }
-export function renderCommandReference<Contexts>(cli: Cli<Contexts>): string {
+/** Documented paths in registry order: every node, or selected command/validation leaves
+ * plus generated twins of selected writes, their ancestors and the root. */
+export function referencePaths<Contexts>(cli: Cli<Contexts>, selection?: ReferenceSelection): readonly string[] {
+  const nodes = registryState(cliRegistry(cli)).nodes;
+  const paths = Object.keys(nodes).sort();
+  const commands = selection?.commands;
+  if (commands === undefined) return paths;
+  if (!Array.isArray(commands)) throw new TypeError("Reference selection commands must be an array of command paths.");
+  const included = new Set([""]);
+  for (const path of commands as readonly unknown[]) {
+    const node = typeof path === "string" && Object.hasOwn(nodes, path) ? nodes[path] : undefined;
+    if (!node?.model) throw new TypeError(`Reference selection ${JSON.stringify(path)} is not a command or validation leaf.`);
+    const spec = node.model.spec;
+    const leaves = node.kind === "command" && spec.effects === "write" && spec.payload ? [node.path, spec.payload.validatePath] : [node.path];
+    for (const leaf of leaves) {
+      const parts = leaf.split(" ");
+      parts.forEach((_part, index) => included.add(parts.slice(0, index + 1).join(" ")));
+    }
+  }
+  return paths.filter(path => included.has(path));
+}
+export function renderCommandReference<Contexts>(cli: Cli<Contexts>, selection?: ReferenceSelection): string {
   const state = registryState(cliRegistry(cli));
-  return `${Object.keys(state.nodes).sort().map(path => `## ${path || state.name}\n\n${renderHelp(cli, path)}`).join("\n")}\n## Exit codes\n\n${renderExitCodes(cli)}`;
+  const paths = referencePaths(cli, selection);
+  const documented = new Set(paths);
+  return `${paths.map(path => `## ${path || state.name}\n\n${renderHelp(cli, path, documented)}`).join("\n")}\n## Exit codes\n\n${renderExitCodes(cli)}`;
 }
 
 /** Runtime-composition calls this only for resolve()'s offline branch. */

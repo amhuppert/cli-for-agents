@@ -35,12 +35,15 @@ raw `--source`, and derived `--text-file`/`--title-file` accept `-` for stdin.
 Queries default to two rows; repeated tags and variadic title terms are AND
 filters. Pages disclose unknown totals, stable handles and an exact continuation.
 `show` defaults to id/title, `--context` adds tags, and `--context --full` adds body
-and saved claims. Bare `--full` is not a declared selector set.
+and saved claims. Bare `--full` is not a declared selector set. `claim validate`
+saves nothing; it returns the payload hash and a preview (node title, claim length
+and existing claims) plus a hint naming the matching `claim apply` invocation.
 
 The output budget is 8192 UTF-8 bytes. Application reads resolve their artifact
 policy from the acquired workspace: `root/artifacts`, forbidden `root/data`.
-`WORKSPACE_ARTIFACTS` may select another existing directory; canonical forbidden
-roots and symlinks still apply. Bootstrap/doctor use the explicit temporary
+`init` creates only `root/data`; the kernel creates the artifact directory the first
+time a response needs it. `WORKSPACE_ARTIFACTS` may select another directory, which
+is created the same way; canonical forbidden roots and symlinks still apply. Bootstrap/doctor use the explicit temporary
 output directory (`TMPDIR` or `/tmp`) before a workspace exists. Binary export
 always uses bounded artifact delivery, preserving the ingested UTF-8 bytes.
 

@@ -149,6 +149,9 @@ export function inheritedCases<Contexts>(cli: Cli<Contexts>, fixtures: ContractF
       const manifest = spilled.artifacts[0];
       requireFact(spilled.exitCode === 0 && spilled.envelope.payload?.kind === "artifact" && manifest?.reason === "stdout_budget_exceeded" && manifest.contains === "response", "Unicode overflow did not spill the full response.");
       requireFact(manifest.bytes === measured(expectedSpill) && artifactBytes.length === manifest.bytes, "Spill manifest miscounted UTF-8 bytes.");
+      const spill = spilled.envelope.payload.spill;
+      requireFact(spill?.format === "json" && spill.inlineBytes === measured(expectedSpill) && spill.maxBytes === threshold, "Spill metadata miscounted the attempted inline response.");
+      requireFact(spilled.envelope.ok && !spilled.envelope.issues.some(issue => issue.code === "KERNEL_OUTPUT"), "Successful spill was reported as an output issue.");
       const expected = new TextEncoder().encode(expectedSpill);
       requireFact(expected.length === artifactBytes.length && expected.every((value, index) => value === artifactBytes[index]), "Spilled bytes differ from the original Unicode response.");
     }),
@@ -165,41 +168,59 @@ export function inheritedCases<Contexts>(cli: Cli<Contexts>, fixtures: ContractF
   ]);
 }
 
+/** Checks caller-supplied field inventories and byte bounds, not the meaning of
+ * arbitrary prose. Every mismatch is reported at once, by command path. */
 export function expectDisclosureParity<Contexts>(cli: Cli<Contexts>, exceptions: readonly DisclosureException[],
   observations: readonly DisclosureParity[], options: { readonly satisfiedDeletionConditions?: readonly string[] } = {}): void {
   try {
     const budget = validateOutputBudget(cliConfiguration(cli).output.maxBytes);
     const nodes = registryState(cliRegistry(cli)).nodes;
-    const fields = (value: readonly string[]): Set<string> => {
-      requireFact(Array.isArray(value), "Expected disclosure field inventory.");
+    const quoted = (fields: Iterable<string>): string => JSON.stringify([...fields].sort());
+    const fields = (value: readonly string[], label: string, command: string): Set<string> => {
+      requireFact(Array.isArray(value), `Expected disclosure ${label} field inventory for ${JSON.stringify(command)}.`);
       value.forEach(assertText);
       const unique = new Set(value);
-      requireFact(unique.size === value.length, "Duplicate disclosure fields.");
+      requireFact(unique.size === value.length, `Duplicate disclosure ${label} fields for ${JSON.stringify(command)}: ${quoted(new Set(value.filter((field, index) => value.indexOf(field) !== index)))}.`);
       return unique;
     };
+    const leaf = (command: unknown): boolean => typeof command === "string" && ["command", "validation"].includes(nodes[command]?.kind ?? "");
     const inventory = new Map<string, DisclosureException>();
     for (const entry of exceptions) {
       assertRecord(entry); assertFields(entry, ["command", "extraFields", "rationale", "deleteWhen"]);
       assertText(entry.command); assertText(entry.rationale); assertText(entry.deleteWhen);
-      requireFact(["command", "validation"].includes(nodes[entry.command]?.kind ?? ""), "Stale disclosure target command.");
-      requireFact(fields(entry.extraFields).size > 0, "Empty disclosure exception.");
-      requireFact(!inventory.has(entry.command), "Duplicate disclosure exception.");
-      requireFact(!options.satisfiedDeletionConditions?.includes(entry.deleteWhen), "Stale disclosure exception: deletion condition is satisfied.");
+      const command = JSON.stringify(entry.command);
+      requireFact(leaf(entry.command), `Stale disclosure exception target ${command}.`);
+      requireFact(fields(entry.extraFields, "exception", entry.command).size > 0, `Disclosure exception for ${command} lists no extra fields.`);
+      requireFact(!inventory.has(entry.command), `Duplicate disclosure exception for ${command}.`);
+      requireFact(!options.satisfiedDeletionConditions?.includes(entry.deleteWhen), `Stale disclosure exception for ${command}: deletion condition ${JSON.stringify(entry.deleteWhen)} is satisfied.`);
       inventory.set(entry.command, entry);
     }
-    const observed = new Set<string>();
+    const seen = new Set<string>();
+    const mismatches: [string, string][] = [];
     for (const observation of observations) {
-      expectBounded(observation.text, budget); expectBounded(observation.json, budget);
-      requireFact(["command", "validation"].includes(nodes[observation.command]?.kind ?? ""), "Unknown disclosure observation command.");
-      requireFact(!observed.has(observation.command), "Duplicate disclosure observation.");
-      observed.add(observation.command);
-      const text = fields(observation.textFields), json = fields(observation.jsonFields);
-      requireFact([...text].every(field => json.has(field)), "Text-only disclosure has no JSON counterpart.");
+      const command = observation.command;
+      requireFact(leaf(command), `Unknown disclosure observation command ${JSON.stringify(command)}.`);
+      requireFact(!seen.has(command), `Duplicate disclosure observation for ${JSON.stringify(command)}.`);
+      for (const [format, result] of [["text", observation.text], ["JSON", observation.json]] as const) {
+        try { expectBounded(result, budget); }
+        catch (error) { throw new Error(`${JSON.stringify(command)} ${format} output ${error instanceof Error ? error.message.replace(/^Output /, "") : "is unbounded."}`); }
+      }
+      seen.add(command);
+      const text = fields(observation.textFields, "text", command), json = fields(observation.jsonFields, "JSON", command);
+      const allowed = new Set(inventory.get(command)?.extraFields ?? []);
+      const textOnly = [...text].filter(field => !json.has(field));
       const extras = [...json].filter(field => !text.has(field));
-      const entry = inventory.get(observation.command);
-      requireFact(same([...extras].sort(), [...entry?.extraFields ?? []].sort()), "Unlisted or stale disclosure extra fields.");
+      const differences = [
+        ...(textOnly.length ? [`text-only ${quoted(textOnly)}`] : []),
+        ...(extras.some(field => !allowed.has(field)) ? [`unlisted JSON-only ${quoted(extras.filter(field => !allowed.has(field)))}`] : []),
+        ...([...allowed].some(field => !extras.includes(field)) ? [`stale exception fields ${quoted([...allowed].filter(field => !extras.includes(field)))}`] : []),
+      ];
+      if (differences.length) mismatches.push([command, `${JSON.stringify(command)}: ${differences.join("; ")}`]);
     }
-    requireFact([...inventory.keys()].every(command => observed.has(command)), "Unused disclosure exception has no current parity evidence.");
+    mismatches.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    requireFact(mismatches.length === 0, `parity differs for ${mismatches.length} command${mismatches.length === 1 ? "" : "s"}:\n${mismatches.map(([, line]) => line).join("\n")}`);
+    const unobserved = [...inventory.keys()].filter(command => !seen.has(command));
+    requireFact(unobserved.length === 0, `Disclosure exceptions have no current parity evidence: ${quoted(unobserved)}.`);
   } catch (error) {
     throw new Error(`disclosure: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }

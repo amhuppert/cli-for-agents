@@ -249,7 +249,9 @@ test('library reference writer uses the injected host and check never requests r
   const host = { files: { ...base.files, read: async (_path, limit) => { const data = new TextEncoder().encode(target); assert.ok(data.length <= limit); return data; }, replace: async (_path, data) => { target = new TextDecoder().decode(data); writes++; } } };
   const options = { path: '/reference.md', marker: 'COMMAND REFERENCE', mode: 'check', host: async () => { loads++; return host; }, signal: new AbortController().signal };
   const { cli } = fixture();
-  assert.deepEqual(await writeCommandReference(cli, options), { ok: true, checked: 1, issues: [], changed: true });
+  const { sizes, ...checked } = await writeCommandReference(cli, options);
+  assert.deepEqual(checked, { ok: true, checked: 1, issues: [], changed: true });
+  assert.equal(sizes.documentBytes, Buffer.byteLength(markerDocument(commandReference(cli))));
   assert.equal(writes, 0);
   assert.equal(loads, 1);
   assert.equal((await writeCommandReference(cli, { ...options, mode: 'write' })).changed, true);
@@ -465,4 +467,152 @@ for (const mode of ['write', 'check']) test(`actual ${mode} never substitutes a 
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /missing_reference/);
   assert.equal(await fs.readFile(f.target, 'utf8'), markerDocument());
+});
+
+// Root prose, reference selection and byte reporting.
+function selectionFixture(extra = {}) {
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
+  const handler = async () => { throw Error('reference generation must not load handlers'); };
+  const define = (spec, examples = [{ why: 'Use it' }]) => family.defineCommand({ requires: 'none', effects: 'read', args: [], flags: {}, ...spec }, { examples, handler });
+  const doctor = define({ path: 'doctor', summary: 'Diagnose', description: 'Diagnose' });
+  const show = define({ path: 'records show', summary: 'Show record', description: 'Read one record 😀.', related: [{ path: 'admin purge', description: 'Purge afterwards' }], skills: [{ path: 'show.md', readWhen: 'Before reading' }] });
+  const write = define({ path: 'records write', summary: 'Write record', description: 'Apply a record payload.', effects: 'write', payload: { maxBytes: bytes(64), validatePath: 'checks records' }, skills: [{ path: 'write.md', readWhen: 'Before writing' }] }, [{ file: 'record.json', why: 'Apply' }]);
+  const purge = define({ path: 'admin purge', summary: 'Purge', description: 'Remove stale records.', skills: [{ path: 'admin.md', readWhen: 'Before purging' }] });
+  const groups = [
+    defineGroup({ path: 'records', summary: 'Records', description: 'Record commands' }),
+    defineGroup({ path: 'checks', summary: 'Checks', description: 'Validation commands' }),
+    defineGroup({ path: 'admin', summary: 'Admin', description: 'Administration', skills: [{ path: 'admin-group.md', readWhen: 'Before administration' }] }),
+  ];
+  return createCli({ name: 'tool', version: '1', family, commands: [doctor, show, write, purge], groups, flows: [defineFlow({ id: 'update', steps: [{ command: show, description: 'Inspect' }, { command: write, description: 'Apply' }] })],
+    contexts: {}, doctor: invocation(doctor, {}), documentation: { directory: '/docs' }, output: { artifacts: { resolve() { throw Error('reference generation must not resolve policy'); } } }, ...extra });
+}
+const headings = reference => reference.split('\n').filter(line => line.startsWith('## '));
+const section = (reference, path) => `\n${reference}`.split('\n## ').find(part => part.startsWith(`${path}\n`));
+
+test('root help renders the CLI name once, then a distinct description', async () => {
+  const plain = selectionFixture();
+  assert.equal(helpNode(plain, '').summary, 'tool');
+  assert.equal(helpNode(plain, '').description, '');
+  assert.ok((await offline(plain, '')).stdout.startsWith('tool\n\nUsage: tool <command> [options]\n'));
+  assert.ok(section(commandReference(plain), 'tool').startsWith('tool\n\ntool\n\nUsage:'));
+  const described = selectionFixture({ description: 'Manage records safely.' });
+  assert.equal(helpNode(described, '').description, 'Manage records safely.');
+  assert.ok((await offline(described, '')).stdout.startsWith('tool\nManage records safely.\n\nUsage:'));
+  assert.equal(JSON.parse((await offline(described, '', { route: { json: true } })).stdout).description, 'Manage records safely.');
+  const repeated = selectionFixture({ description: 'tool' });
+  assert.ok((await offline(repeated, '')).stdout.startsWith('tool\n\nUsage:'));
+  assert.ok((await offline(repeated, 'doctor')).stdout.startsWith('Diagnose\n\nUsage:'), 'leaf summary equal to description renders once');
+  for (const description of ['', ' ', 'bad\u0007text']) assert.throws(() => selectionFixture({ description }), TypeError);
+});
+
+test('reference selection includes chosen leaves, generated twins and filtered ancestors', () => {
+  const cli = selectionFixture();
+  const reference = commandReference(cli, { commands: ['records show', 'admin purge'] });
+  assert.deepEqual(headings(reference), ['## tool', '## admin', '## admin purge', '## records', '## records show', '## Exit codes']);
+  const root = section(reference, 'tool');
+  assert.match(root, /^tool admin — Admin$/m);
+  assert.match(root, /^tool records — Records$/m);
+  assert.doesNotMatch(root, /tool checks|tool doctor/);
+  assert.doesNotMatch(section(reference, 'records'), /records write|checks records/);
+  assert.match(section(reference, 'records show'), /^tool admin purge --help — Purge afterwards$/m);
+  assert.match(section(reference, 'records show'), /^update: records show \(Inspect\) → records write \(Apply\)$/m);
+  assert.doesNotMatch(section(reference, 'admin purge'), /Flows:/);
+  const written = commandReference(cli, { commands: ['records write'] });
+  assert.deepEqual(headings(written), ['## tool', '## checks', '## checks records', '## records', '## records write', '## Exit codes']);
+  assert.doesNotMatch(section(written, 'checks'), /Commands:\n(?![^\n]*checks records)/);
+  const twin = commandReference(cli, { commands: ['checks records'] });
+  assert.deepEqual(headings(twin), ['## tool', '## checks', '## checks records', '## Exit codes']);
+  assert.match(section(twin, 'checks records'), /^tool records write --help — Apply$/m);
+  assert.match(section(twin, 'checks records'), /^update: records show \(Inspect\) → records write \(Apply\)$/m);
+  assert.ok(reference.endsWith(`## Exit codes\n\n${commandReference(cli).split('## Exit codes\n\n')[1]}`));
+});
+
+test('reference selection is deduplicated, stably ordered, empty-capable and strict', () => {
+  const cli = selectionFixture();
+  assert.equal(commandReference(cli, { commands: ['records show', 'admin purge', 'records show'] }), commandReference(cli, { commands: ['admin purge', 'records show'] }));
+  assert.equal(commandReference(cli), commandReference(cli, {}));
+  const empty = commandReference(cli, { commands: [] });
+  assert.deepEqual(headings(empty), ['## tool', '## Exit codes']);
+  assert.doesNotMatch(section(empty, 'tool'), /Commands:/);
+  for (const path of ['records', '', 'missing', 'records missing']) {
+    assert.throws(() => commandReference(cli, { commands: [path] }), error => error instanceof TypeError && error.message.includes(JSON.stringify(path)), path);
+  }
+});
+
+test('reference validation checks only skills of included nodes, counting a twin once', async () => {
+  const cli = selectionFixture();
+  const signal = new AbortController().signal;
+  const host = createTestHost({ files: { '/docs/admin.md': '', '/docs/admin-group.md': '', '/docs/write.md': '' } });
+  assert.equal((await validateReferences(cli, { host, signal })).ok, false);
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['admin purge'] }), { ok: true, checked: 2, issues: [] });
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['checks records'] }), { ok: true, checked: 1, issues: [] });
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['records write', 'checks records'] }), { ok: true, checked: 1, issues: [] });
+  const missing = await validateReferences(cli, { host, signal, commands: ['records show'] });
+  assert.deepEqual(missing.issues, [{ code: 'missing_reference', commandPath: 'records show', reference: 'show.md' }]);
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: [] }), { ok: true, checked: 0, issues: [] });
+});
+
+function sizedHost(document, files = {}) {
+  let target = document; let writes = 0;
+  const base = createTestHost({ files: { '/docs/admin.md': '', '/docs/admin-group.md': '', '/docs/show.md': '', '/docs/write.md': '', ...files } });
+  const host = { files: { ...base.files, read: async (_path, limit) => { const data = new TextEncoder().encode(target); if (data.length > limit) throw new RangeError('limit'); return data; }, replace: async (_path, data) => { target = new TextDecoder().decode(data); writes++; } } };
+  return { host, target: () => target, writes: () => writes };
+}
+const utf8 = text => Buffer.byteLength(text);
+for (const newline of ['\n', '\r\n']) test(`reference writer reports exact UTF-8 sizes for ${JSON.stringify(newline)} documents in check and write modes`, async () => {
+  const cli = selectionFixture();
+  const selection = { commands: ['records show'] };
+  const document = markerDocument().replaceAll('\n', newline);
+  const x = sizedHost(document);
+  const options = { path: '/reference.md', marker: 'COMMAND REFERENCE', host: x.host, signal: new AbortController().signal, ...selection };
+  const checked = await writeCommandReference(cli, { ...options, mode: 'check' });
+  const block = commandReference(cli, selection).replaceAll('\n', newline);
+  const expected = document.replace(`<!-- BEGIN GENERATED COMMAND REFERENCE -->${newline}`, `<!-- BEGIN GENERATED COMMAND REFERENCE -->${newline}${block}`);
+  assert.deepEqual(checked, { ok: true, checked: 1, issues: [], changed: true, sizes: { generatedBytes: utf8(block), documentBytes: utf8(expected), maxBytes: 1048576 } });
+  assert.notEqual(utf8(block), block.length, 'fixture must distinguish UTF-8 bytes from code units');
+  assert.equal(x.writes(), 0);
+  const written = await writeCommandReference(cli, { ...options, mode: 'write' });
+  assert.deepEqual(written.sizes, checked.sizes);
+  assert.equal(x.target(), expected);
+  const unchanged = await writeCommandReference(cli, { ...options, mode: 'check' });
+  assert.deepEqual(unchanged, { ...checked, changed: false });
+});
+test('reference size limit admits the exact document size and refuses one byte less before replacement', async () => {
+  const cli = selectionFixture();
+  const x = sizedHost(markerDocument());
+  const options = { path: '/reference.md', marker: 'COMMAND REFERENCE', host: x.host, signal: new AbortController().signal, commands: ['admin purge'] };
+  const { sizes } = await writeCommandReference(cli, { ...options, mode: 'check' });
+  await assert.rejects(writeCommandReference(cli, { ...options, mode: 'write', maxBytes: bytes(sizes.documentBytes - 1) }),
+    error => error instanceof RangeError && error.message.includes(String(sizes.documentBytes)) && error.message.includes(String(sizes.generatedBytes)) && error.message.includes(String(sizes.documentBytes - 1)));
+  assert.equal(x.writes(), 0);
+  const exact = await writeCommandReference(cli, { ...options, mode: 'write', maxBytes: bytes(sizes.documentBytes) });
+  assert.deepEqual(exact.sizes, { ...sizes, maxBytes: sizes.documentBytes });
+  assert.equal(x.writes(), 1);
+});
+test('reference validation failure reports no sizes and never replaces', async () => {
+  const cli = selectionFixture();
+  const x = sizedHost(markerDocument());
+  const base = createTestHost();
+  const result = await writeCommandReference(cli, { path: '/reference.md', marker: 'COMMAND REFERENCE', mode: 'write', host: { files: { ...base.files, read: x.host.files.read, replace: x.host.files.replace } }, signal: new AbortController().signal });
+  assert.equal(result.ok, false);
+  assert.equal(Object.hasOwn(result, 'sizes'), false);
+  assert.equal(x.writes(), 0);
+});
+test('generator filters by repeated --command and reports writer sizes without losing drift detection', async t => {
+  const f = await referenceFixture(t);
+  const filtered = f.run('--command', 'records show', '--command', 'doctor');
+  assert.equal(filtered.status, 0, filtered.stderr);
+  const cli = createReferenceCli({ documentationDirectory: f.docs });
+  const block = commandReference(cli, { commands: ['records show', 'doctor'] });
+  const document = markerDocument(block);
+  assert.equal(await fs.readFile(f.target, 'utf8'), document);
+  assert.equal(filtered.stdout, `Updated ${f.target} (${utf8(block)} generated bytes; document ${utf8(document)} of 1048576 bytes).\n`);
+  assert.doesNotMatch(document, /## records write/);
+  const checked = f.run('--check', '--command', 'doctor', '--command', 'records show');
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.equal(checked.stdout, `Checked ${f.target} (${utf8(block)} generated bytes; document ${utf8(document)} of 1048576 bytes).\n`);
+  assert.equal(f.run('--check').status, 1, 'an unfiltered check detects drift from the filtered document');
+  const refused = f.run('--command', 'records');
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /"records"/);
 });

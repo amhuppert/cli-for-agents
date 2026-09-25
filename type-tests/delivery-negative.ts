@@ -29,7 +29,7 @@ accepts<HelpSection>({ kind: "paragraphs", title: "Title", items: ["x"] });
 declare const none: Extract<PostOperationContext<{ remote: { endpoint: string } }>, { requires: "none" }>;
 // @ts-expect-error None contexts do not provide an app to post-operation work.
 none.app.endpoint;
-// @ts-expect-error The hook must retain a resolved immutable policy, not an app resolver.
+// @ts-expect-error The hook must retain a captured app-free policy, not an app resolver.
 accepts<PostOperationFacts>({ issues: [], artifacts: { resolve: async () => ({ directory: "/tmp", forbiddenRoots: [] }) } });
 declare const parsed: ParsedInvocation<{}>;
 declare const resolved: ResolvedRunRequest;

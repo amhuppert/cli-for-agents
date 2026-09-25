@@ -131,7 +131,7 @@ for (const character of ["'", "\\", "\u2028", "😀"]) {
       const base = await response();
       const wire = decodeEnvelope({ ok: false, effect: "applied", recovery,
         instruction: fill(1024, value => "a" + value, character), reminders: fill(1024, value => ["a" + value], character),
-        payload: { kind: "artifact", artifact: manifest, summary: "x".repeat(20000) },
+        payload: { kind: "artifact", artifact: manifest, summary: "x".repeat(20000), spill: { format: "json", inlineBytes: 40000, maxBytes: 8192 } },
         error: { code: "E".repeat(510), exitClass: "connection", message: fill(512, value => "a" + value, character), why: fill(512, value => "a" + value, character), ...references, secondary: Object.keys(kernelErrors).flatMap(code => Array.from({ length: 30 }, () => ({ code, message: "x".repeat(510) }))), details: "x".repeat(20000) } });
       const result = await deliver({ ...base, envelope: wire, executable: "'".repeat(2000), primaryText: "x".repeat(20000) }, options(format));
       const decoded = bounded(result, format, 3);
@@ -167,12 +167,12 @@ test("required ingress overflow is rejected instead of truncating instructions o
   }
 });
 
-import { mkdtemp, mkdir, symlink, realpath, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, realpath, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { nodeHost } from "cli-for-agents/runtime";
-import { resolveArtifactPolicy, writeArtifact } from "../dist/internal/artifacts.js";
+import { captureArtifactPolicy, resolveArtifactPolicy, writeArtifact } from "../dist/internal/artifacts.js";
 const signal = new AbortController().signal;
 const artifactRequest = (extra = {}) => ({ bytes: new TextEncoder().encode('é😀\n'), format: "json", mediaType: "application/json", basename: "data.json", reason: "stdout_budget_exceeded", contains: "data", ...extra });
 async function fixture(t) {
@@ -192,7 +192,7 @@ test("policy resolution freezes an app-free canonical snapshot", async t => {
   // Runtime composition owns invoking app/env resolution before release.
   assert.equal(calls, 0);
   const policyInput = await source.resolve({ app: { open }, env: { OUT: path.join(root, "alias") } });
-  const policy = await Promise.resolve().then(() => resolveArtifactPolicy(policyInput, host)).catch(() => undefined);
+  const policy = await Promise.resolve().then(() => resolveArtifactPolicy(policyInput, host, signal)).catch(() => undefined);
   assert.ok(policy, "policy must resolve while application is still open");
   open = false;
   policyInput.forbiddenRoots.length = 0;
@@ -207,17 +207,39 @@ test("policy resolution freezes an app-free canonical snapshot", async t => {
 test("policy rejects forbidden directories and non-directory roots", async t => {
   const { root, directory, forbidden, host } = await fixture(t);
   await writeFile(path.join(root, "file"), "x");
-  for (const input of [
-    { directory: forbidden, forbiddenRoots: [forbidden] },
-    { directory, forbiddenRoots: [root] },
-    { directory: path.join(root, "missing"), forbiddenRoots: [] },
-    { directory: path.join(root, "file"), forbiddenRoots: [] },
-    { directory, forbiddenRoots: [], retention: { maxAgeMs: 1000 } },
-  ]) await assert.rejects(async () => resolveArtifactPolicy(input, host));
+  for (const [input, cause] of [
+    [{ directory: forbidden, forbiddenRoots: [forbidden] }, /inside a forbidden root/],
+    [{ directory, forbiddenRoots: [root] }, /inside a forbidden root/],
+    [{ directory: path.join(root, "file"), forbiddenRoots: [] }, /is a file, not a directory/],
+    [{ directory: path.join(root, "file/child"), forbiddenRoots: [] }, /ancestor that is not a directory/],
+    [{ directory, forbiddenRoots: [], retention: { maxAgeMs: 1000 } }, /Artifact policy is invalid/],
+  ]) await assert.rejects(async () => resolveArtifactPolicy(input, host, signal), error => error.failure.code === "KERNEL_OUTPUT" && cause.test(error.message));
+  assert.equal(await readFile(path.join(root, "file"), "utf8"), "x");
+});
+test("policy preparation creates only a missing configured root, after forbidden checks", async t => {
+  const { root, directory, forbidden, host } = await fixture(t);
+  const created = path.join(root, "new/nested/artifacts");
+  assert.equal((await resolveArtifactPolicy({ directory: created + "/", forbiddenRoots: [forbidden + "/"] }, host, signal)).directory, created);
+  assert.equal((await stat(created)).isDirectory(), true);
+  await symlink(directory, path.join(root, "alias"));
+  const aliased = await resolveArtifactPolicy({ directory: path.join(root, "alias/child"), forbiddenRoots: [] }, host, signal);
+  assert.equal(aliased.directory, path.join(directory, "child"));
+  assert.equal((await stat(path.join(directory, "child"))).isDirectory(), true);
+  await assert.rejects(resolveArtifactPolicy({ directory: path.join(forbidden, "blocked/artifacts"), forbiddenRoots: [forbidden] }, host, signal), /inside a forbidden root/);
+  assert.deepEqual(await readdir(forbidden), []);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(resolveArtifactPolicy({ directory: path.join(root, "cancelled"), forbiddenRoots: [] }, host, controller.signal), error => error.failure.code === "KERNEL_CANCELLED");
+  await assert.rejects(stat(path.join(root, "cancelled")), { code: "ENOENT" });
+  if (process.getuid?.() !== 0) {
+    const locked = path.join(root, "locked");
+    await mkdir(locked); await chmod(locked, 0o500);
+    try { await assert.rejects(resolveArtifactPolicy({ directory: path.join(locked, "artifacts"), forbiddenRoots: [] }, host, signal), /the OS denied permission/); }
+    finally { await chmod(locked, 0o700); }
+  }
 });
 test("atomic manifests report absolute canonical paths and true bytes/hash/content", async t => {
   const { directory, forbidden, host } = await fixture(t);
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden] }, host);
+  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [forbidden] }, host, signal);
   const request = artifactRequest();
   const manifest = await writeArtifact(request, policy, host, signal);
   assert.equal(path.dirname(manifest.path), directory);
@@ -233,7 +255,7 @@ test("atomic manifests report absolute canonical paths and true bytes/hash/conte
 });
 test("explicit out refuses unrelated collisions and reuses matching files without clobber", async t => {
   const { directory, host } = await fixture(t);
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host, signal);
   const request = artifactRequest({ out: "chosen.json", reason: "explicit_out" });
   const manifest = await writeArtifact(request, policy, host, signal);
   assert.equal(manifest.path, path.join(directory, "chosen.json"));
@@ -244,7 +266,7 @@ test("explicit out refuses unrelated collisions and reuses matching files withou
 });
 test("failed explicit artifact delivery names the cause, destination, and directory while retaining the read effect", async t => {
   const { root, directory, host } = await fixture(t);
-  const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
   const cases = [
     { out: "nested/result.json", destination: path.join(directory, "nested/result.json"), cause: /parent.*does not exist/i },
     { out: path.join(root, "outside.json"), destination: path.join(root, "outside.json"), cause: /outside/i },
@@ -277,7 +299,7 @@ test("canonical containment rejects symlink ancestors, forbidden aliases and pre
   await mkdir(lookalike);
   await symlink(forbidden, path.join(directory, "escape"));
   await symlink(forbidden, path.join(root, "forbidden-alias"));
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [path.join(root, "forbidden-alias")] }, host);
+  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [path.join(root, "forbidden-alias")] }, host, signal);
   for (const out of ["escape/new.json", path.join(forbidden, "new.json"), path.join(lookalike, "new.json"), "../dataset/new.json"]) {
     await assert.rejects(() => writeArtifact(artifactRequest({ out }), policy, host, signal), /outside|forbidden/i);
   }
@@ -286,7 +308,7 @@ test("canonical containment rejects symlink ancestors, forbidden aliases and pre
 });
 test("automatic spills contain the entire response; explicit JSON out contains only data", async t => {
   const { directory, host } = await fixture(t);
-  const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
   const assembled = await response({ data: { rows: "x".repeat(30000) }, guidance: { instruction: instruction("owner", "Stop.") } });
   for (const out of [undefined, "data.json"]) {
     const wire = bounded(await deliver(assembled, options("json", { host, artifacts, ...(out ? { out } : {}) })), "json", 0);
@@ -301,7 +323,7 @@ test("automatic spills contain the entire response; explicit JSON out contains o
 });
 test("writer snapshots bytes before awaiting host operations and refuses malformed hashes", async () => {
   const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
+  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host, signal);
   const request = artifactRequest();
   const expected = new Uint8Array(request.bytes);
   const writing = writeArtifact(request, policy, host, signal);
@@ -316,7 +338,7 @@ test("writer snapshots bytes before awaiting host operations and refuses malform
 });
 test("resolved policies are immutable", async () => {
   const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
+  const policy = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host, signal);
   assert.throws(() => { policy.directory = "/outside"; }, TypeError);
   assert.throws(() => { policy.forbiddenRoots.push("/"); }, TypeError);
 });
@@ -324,10 +346,10 @@ test("symlinks inside the allowed directory retain canonical destinations; neste
   const { directory, host } = await fixture(t);
   await mkdir(path.join(directory, "nested"));
   await symlink(path.join(directory, "nested"), path.join(directory, "alias"));
-  const allowed = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const allowed = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host, signal);
   const manifest = await writeArtifact(artifactRequest({ out: "alias/file.json" }), allowed, host, signal);
   assert.equal(manifest.path, path.join(directory, "nested/file.json"));
-  const blocked = await resolveArtifactPolicy({ directory, forbiddenRoots: [path.join(directory, "alias")] }, host);
+  const blocked = await resolveArtifactPolicy({ directory, forbiddenRoots: [path.join(directory, "alias")] }, host, signal);
   await assert.rejects(() => writeArtifact(artifactRequest({ out: "nested/other.json" }), blocked, host, signal), /forbidden/i);
   assert.deepEqual(await readdir(path.join(directory, "nested")), ["file.json"]);
 });
@@ -358,7 +380,7 @@ for (const format of ["json", "text"]) {
   for (const explicit of [false, true]) {
     test(`${format} binary ${explicit ? "out" : "automatic"} preserves every byte and keeps summary separate`, async t => {
       const { directory, host } = await fixture(t);
-      const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+      const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
       const request = binaryArtifact(binaryInput());
       const result = await deliver(await binaryResponse(request), options(format, { host, artifacts, ...(explicit ? { out: "chosen.bin" } : {}) }));
       const wire = bounded(result, format, 0);
@@ -384,7 +406,7 @@ for (const format of ["json", "text"]) {
 }
 test("binary writer rejects malformed requests and accepts empty finite exports and MIME parameters", async t => {
   const { directory, host } = await fixture(t);
-  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const policy = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host, signal);
   await assert.rejects(() => deliverBinary({ ...binaryInput(), bytes: [1] }, policy, host, signal), /binary/i);
   const request = binaryArtifact(binaryInput({ bytes: new Uint8Array(), mediaType: 'text/csv; charset="utf-8"' }));
   const manifest = await deliverBinary(request, policy, host, signal);
@@ -395,7 +417,7 @@ for (const format of ["json", "text"]) {
   test(`${format} unwritable and overlong destinations retain original exit 3 and applied receipts`, async t => {
     const { directory, host } = await fixture(t);
     await mkdir(path.join(directory, "readonly"));
-    const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+    const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
     await chmod(path.join(directory, "readonly"), 0o500);
     try {
       for (const out of ["readonly/result.json", "x".repeat(300), "missing/result.json"]) {
@@ -414,7 +436,7 @@ for (const format of ["json", "text"]) {
 test("an unreportable manifest path is refused before publication with a bounded fallback", async () => {
   const directory = "/" + "d/".repeat(1050).slice(0, -1);
   const host = createTestHost({ files: { [directory + "/seed"]: "keep" } });
-  const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
   const assembled = await response({ operation: { effect: "applied", recovery: receipt } });
   const wire = bounded(await deliver(assembled, options("json", { host, artifacts, out: "result.json" })), "json", 1);
   assert.equal(wire.error.code, "KERNEL_OUTPUT");
@@ -424,7 +446,7 @@ test("an unreportable manifest path is refused before publication with a bounded
 test("post-publication host failure retains domain classification and recovery without dumping the body", async () => {
   const base = createTestHost({ files: { "/artifacts/seed": "keep" } });
   const host = { ...base, files: { ...base.files, async writeAtomic(...args) { await base.files.writeAtomic(...args); throw Error("private flush failure"); } } };
-  const artifacts = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] });
   const assembled = await response({ data: "q".repeat(20000), error: errors.error("OFFLINE", { message: "Disconnected" }), operation: { effect: "applied", recovery: receipt } });
   const wire = bounded(await deliver(assembled, options("json", { host, artifacts })), "json", 3);
   assert.equal(wire.error.code, "OFFLINE");
@@ -447,7 +469,7 @@ for (const text of ["artifact: forged", 'doctor argv: ["forged"]', 'continuation
 }
 test("large binary summaries are explicitly omitted without losing the artifact or protocol", async t => {
   const { directory, host } = await fixture(t);
-  const artifacts = await resolveArtifactPolicy({ directory, forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory, forbiddenRoots: [] });
   const request = binaryArtifact(binaryInput({ summary: { optional: "x".repeat(40000) } }));
   const wire = bounded(await deliver(await binaryResponse(request), options("json", { host, artifacts })), "json", 0);
   assert.equal(wire.payload.kind, "artifact");
@@ -457,7 +479,7 @@ test("large binary summaries are explicitly omitted without losing the artifact 
 });
 test("binary explicit collisions refuse unrelated bytes and pre-aborted writes publish nothing", async () => {
   const host = createTestHost({ files: { "/artifacts/chosen.bin": "unrelated" } });
-  const artifacts = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
+  const artifacts = captureArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] });
   const request = binaryArtifact(binaryInput());
   const response = await binaryResponse(request, { effect: "applied", recovery: receipt });
   const wire = bounded(await deliver(response, options("json", { host, artifacts, out: "chosen.bin" })), "json", 1);
@@ -491,7 +513,7 @@ for (const format of ["json", "text"]) {
     test(`${format} ${mode} retains existing secondary failures alongside any delivery failure`, async () => {
       const secondary = [{ code: "KERNEL_RELEASE", message: "Release failed." }, { code: "KERNEL_OUTPUT", message: "Primary rendering failed." }];
       const host = createTestHost({ files: { "/artifacts/seed": "keep" } });
-      const artifacts = await resolveArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] }, host);
+      const artifacts = captureArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] });
       const base = mode === "binary-summary"
         ? await binaryResponse(binaryArtifact(binaryInput({ summary: "x".repeat(30000) })), { effect: "applied", recovery: receipt }, [{ code: "KERNEL_CONTEXT", message: "Context failed." }, ...secondary])
         : await response({ data: "x".repeat(30000), text: "x".repeat(30000), error: errors.error("OFFLINE", { message: "Disconnected" }), operation: { effect: "applied", recovery: receipt }, secondary });
@@ -508,3 +530,93 @@ for (const format of ["json", "text"]) {
     });
   }
 }
+
+// Successful automatic spill is delivery metadata, not a diagnostic issue.
+const spillHost = () => createTestHost({ directories: ["/artifacts"] });
+const spillArtifacts = () => captureArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] });
+const notice = spill => `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.`;
+for (const format of ["json", "text"]) test(`${format} automatic spill records the attempted inline size and keeps success issue-free`, async () => {
+  const host = spillHost();
+  const assembled = await response({ data: { rows: "😀\u2028".repeat(3000) }, text: "é😀".repeat(3000) });
+  const attempted = renderResponse(assembled, format);
+  const inlineBytes = Buffer.byteLength(attempted.stdout) + Buffer.byteLength(attempted.stderr);
+  const result = await deliver(assembled, options(format, { host, artifacts: spillArtifacts() }));
+  assert.equal(result.exitCode, 0);
+  assert.ok(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) <= 8192);
+  const manifest = JSON.parse(result.stdout.split("\n").find(line => line.startsWith("artifact: "))?.slice(10) ?? JSON.stringify(JSON.parse(result.stdout).payload.artifact));
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(host.filesSnapshot()[manifest.path])), assembled.envelope, "artifact retains the complete original response");
+  const spill = { format, inlineBytes, maxBytes: 8192 };
+  if (format === "json") {
+    const wire = decodeEnvelope(JSON.parse(result.stdout));
+    assert.deepEqual(wire.payload, { kind: "artifact", artifact: manifest, summary: { omitted: true }, spill });
+    assert.deepEqual(wire.issues, []);
+    assert.doesNotMatch(result.stdout, /notice:/);
+  } else {
+    const lines = result.stdout.split("\n");
+    assert.equal(lines[lines.indexOf(notice(spill)) + 1], `artifact: ${JSON.stringify(manifest)}`);
+    assert.doesNotMatch(result.stdout, /issue: KERNEL_OUTPUT/);
+    assert.notEqual(inlineBytes, manifest.bytes, "text attempts are measured separately from the JSON artifact");
+  }
+});
+test("legitimate issues survive a spill while they fit and are otherwise disclosed as omitted", async () => {
+  const kept = await response({ data: { rows: "x".repeat(30000) } });
+  const issues = [{ code: "NOTE", message: "Checked twice." }];
+  const withIssues = { ...kept, envelope: decodeEnvelope({ ...kept.envelope, issues }) };
+  const wire = bounded(await deliver(withIssues, options("json", { host: spillHost(), artifacts: spillArtifacts() })), "json", 0);
+  assert.deepEqual(wire.issues, issues);
+  const many = Array.from({ length: 40 }, (_, index) => ({ code: "NOTE", message: `${index} ${"x".repeat(400)}` }));
+  const crowded = bounded(await deliver({ ...kept, envelope: decodeEnvelope({ ...kept.envelope, issues: many }) }, options("json", { host: spillHost(), artifacts: spillArtifacts() })), "json", 0);
+  assert.deepEqual(crowded.issues, []);
+  assert.deepEqual(crowded.payload.summary, { omitted: true });
+  assert.equal(crowded.payload.spill.format, "json");
+});
+test("a failed primary response spills with the same metadata and no invented output failure", async () => {
+  const issues = [{ code: "NETWORK", message: "Acknowledgment unavailable." }];
+  const assembled = await response({ data: { rows: "x".repeat(30000) }, error: errors.error("OFFLINE", { message: "Disconnected", issues }), operation: { effect: "applied", recovery: receipt } });
+  for (const format of ["json", "text"]) {
+    const result = await deliver(assembled, options(format, { host: spillHost(), artifacts: spillArtifacts() }));
+    const wire = bounded(result, format, 3);
+    if (wire) {
+      assert.equal(wire.error.code, "OFFLINE");
+      assert.deepEqual(wire.error.secondary, []);
+      assert.deepEqual(wire.error.issues, issues);
+      assert.equal(wire.payload.spill.format, "json");
+      assert.deepEqual(wire.recovery, receipt);
+    } else {
+      assert.match(result.stderr, /^notice: response \d+ bytes exceeds the 8192-byte budget; full response in artifact\.$/m);
+      assert.doesNotMatch(result.stderr, /KERNEL_OUTPUT/);
+    }
+  }
+});
+test("publication failure, explicit out and binary receipts carry no spill metadata", async () => {
+  const assembled = await response({ data: { rows: "x".repeat(30000) } });
+  const host = spillHost();
+  const failing = { ...host, files: { ...host.files, writeAtomic: async () => { throw Error("disk"); } } };
+  const failed = bounded(await deliver(assembled, options("json", { host: failing, artifacts: spillArtifacts() })), "json", 1);
+  assert.equal(failed.error.code, "KERNEL_OUTPUT");
+  assert.equal(failed.payload.kind, "inline");
+  const explicit = bounded(await deliver(assembled, options("json", { host: spillHost(), artifacts: spillArtifacts(), out: "data.json" })), "json", 0);
+  assert.equal(explicit.payload.artifact.reason, "explicit_out");
+  assert.equal(Object.hasOwn(explicit.payload, "spill"), false);
+  const binary = bounded(await deliver(await binaryResponse(binaryArtifact(binaryInput({ summary: { optional: "x".repeat(40000) } }))), options("json", { host: spillHost(), artifacts: spillArtifacts() })), "json", 0);
+  assert.equal(binary.payload.artifact.reason, "binary_request");
+  assert.equal(Object.hasOwn(binary.payload, "spill"), false);
+});
+for (const format of ["json", "text"]) test(`${format} minimum-budget spill receipt keeps maximal required protocol`, async () => {
+  const recovery = recoveryFacts([{ kind: "receipt", id: fill(1024, id => ({ kind: "reported", references: [{ kind: "receipt", id }] }), "😀").references[0].id }]);
+  const required = fill(1024, value => ({ ownerId: "owner", text: "a" + value }), "é");
+  const reminders = [fill(1024, value => ["a" + value], "é")[0]];
+  const base = await response({ data: { rows: "x".repeat(30000) }, operation: { effect: "applied", recovery } });
+  const envelope = decodeEnvelope({ ...base.envelope, instruction: required.text, reminders });
+  const result = await deliver({ ...base, envelope }, options(format, { host: spillHost(), artifacts: spillArtifacts() }));
+  const wire = bounded(result, format, 0);
+  if (wire) {
+    assert.equal(wire.instruction, required.text);
+    assert.deepEqual(wire.reminders, reminders);
+    assert.deepEqual(wire.recovery, recovery);
+    assert.equal(wire.payload.spill.maxBytes, 8192);
+  } else {
+    assert.ok(result.stdout.includes(required.text));
+    assert.match(result.stdout, /^notice: response \d+ bytes exceeds the 8192-byte budget; full response in artifact\.$/m);
+  }
+});

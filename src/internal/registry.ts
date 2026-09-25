@@ -4,6 +4,7 @@ import type { Flag } from "../input.js";
 import type { Issue, ErrorDefinitions, FamilyCode } from "../results.js";
 import type { CliOptions } from "../runtime/index.js";
 import { parseTokens } from "./parser.js";
+import type { FormatObservation } from "./parser.js";
 import type { CheckedInput } from "./input-model.js";
 import { commandData, checkFamily, checkGroup, flowSteps } from "./declarations.js";
 import { invocationArgv, makeInvocation, referenceTokens } from "./invocations.js";
@@ -24,23 +25,25 @@ export type ParsedInvocation<Contexts = never, Code extends string = string, G e
   readonly validation: boolean;
   readonly json: boolean;
 };
-export type Resolution<Contexts = never, Code extends string = string, G extends Readonly<Record<string, Flag>> = {}> =
+/** Every variant carries the parser's explicit format observation for test callers. */
+export type Resolution<Contexts = never, Code extends string = string, G extends Readonly<Record<string, Flag>> = {}> = { readonly explicitJson: boolean | undefined } & (
   | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string; readonly json: boolean }
   | { readonly kind: "leaf"; readonly invocation: ParsedInvocation<Contexts, Code, G> }
-  | { readonly kind: "invalid"; readonly issues: readonly Issue[]; readonly json: boolean };
+  | { readonly kind: "invalid"; readonly issues: readonly Issue[]; readonly json: boolean });
 /** Synchronous graph/shape validation only, including docs root/reference syntax. */
 export function register<Contexts, D extends ErrorDefinitions, G extends Readonly<Record<string, Flag>>>(
   options: CliOptions<Contexts, D, G>,
 ): Registry<Contexts, FamilyCode<D>, G> {
   checkFamily(options.family);
   assertText(options.name); assertText(options.version);
+  if (options.description !== undefined) assertText(options.description);
   if (!options.contexts || typeof options.contexts !== "object" || Object.hasOwn(options.contexts, "none")) throw new TypeError("Invalid context providers.");
   for (const provider of Object.values(options.contexts)) if (typeof provider !== "function") throw new TypeError("Invalid context provider.");
   if (!options.output || !options.output.artifacts) throw new TypeError("Explicit artifact policy is required.");
   if (options.documentation) assertText(options.documentation.directory);
   if (options.guidance && (typeof options.guidance.load !== "function" || typeof options.guidance.conflictSink !== "function")) throw new TypeError("Guidance requires a lazy source and conflict sink.");
   const nodes: Record<string, RegistryNode> = Object.create(null);
-  nodes[""] = Object.freeze({ path: "", kind: "root", summary: options.name, description: options.name });
+  nodes[""] = Object.freeze({ path: "", kind: "root", summary: options.name, description: options.description ?? "" });
   const add = (node: RegistryNode): void => {
     if (Object.hasOwn(nodes, node.path)) throw new TypeError("Duplicate registry path.");
     nodes[node.path] = Object.freeze(node);
@@ -87,19 +90,19 @@ export function resolve<Contexts, Code extends string, G extends Readonly<Record
   registry: Registry<Contexts, Code, G>, argv: readonly string[],
 ): Resolution<Contexts, Code, G> {
   const state = registryState(registry);
-  let json = false;
+  let format: FormatObservation = { json: false, explicitJson: undefined };
   try {
-    const resolved = parseTokens(state.nodes, argv, format => { json = format; });
+    const resolved = parseTokens(state.nodes, argv, observed => { format = observed; });
     if (resolved.kind === "offline") return resolved;
     const command = resolved.node.command!;
     checkMembership(registry, command);
     const invocation = Object.freeze({ command, input: resolved.input,
       path: resolved.node.path, validation: resolved.node.kind === "validation", json: resolved.json,
     }) as ParsedInvocation<Contexts, Code, G>;
-    return { kind: "leaf", invocation };
+    return { kind: "leaf", invocation, explicitJson: resolved.explicitJson };
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
-    return { kind: "invalid", json, issues: [error instanceof InputValidationError ? error.issue : { code: "invalid_value", message: error.message }] };
+    return { kind: "invalid", ...format, issues: [error instanceof InputValidationError ? error.issue : { code: "invalid_value", message: error.message }] };
   }
 }
 /** Static projections and lazy binding lookup for help, execution and composition. */

@@ -2,15 +2,29 @@
 
 ## Public execution and evidence
 
-`runForTest(cli, argvOrInvocation, { host, format, contexts?, env? })` calls public
-`runCli`. The host accepts the public `Host` interface, including both real
-`nodeHost()` and in-memory `createTestHost()` capabilities. Omit contexts to retain
-real providers; supply the complete bound map to substitute concrete services for
-one invocation. Services may use real stores or
-transport. Overrides do not replace the original CLI's providers. Invocations are
-rebound against the CLI's registry before argv derivation. Format selection respects
-already-selected JSON; contradictory/duplicate flags still use canonical parsing.
-No handler is rerun to capture a second format.
+`runForTest(cli, argvOrInvocation, { host, format, contexts?, env? })` runs the same
+production pipeline as `runCli`. The host accepts the public `Host` interface,
+including both real `nodeHost()` and in-memory `createTestHost()` capabilities. Omit
+contexts to retain real providers; supply the complete bound map to substitute
+concrete services for one invocation. Services may use real stores or transport.
+Overrides do not replace the original CLI's providers. Invocations are rebound
+against the CLI's registry before argv derivation. No handler is rerun to capture a
+second format.
+
+`format` selects only the final representation; argv is never rewritten. One valid
+`--json`, `--json=true` or `--json=false` before `--` that contradicts `format`
+throws `TypeError("Input conflicts with test format.")` before host access or
+handler loading. Absent, malformed or duplicate format flags are not a test-call
+conflict: they run as written, so a test can inspect the resulting `KERNEL_USAGE`
+failure in either representation. Tokens after `--` are data, not format flags.
+
+`createTestHost({ files, directories, stdin, now })` is a virtual POSIX filesystem.
+Seeded files create their parent directories; `directories` seeds explicit empty
+ones (a file colliding with a directory is a setup error), and seeding records no
+calls. The kernel creates the configured artifact directory on demand through
+`Host.files.ensureDirectory`, so a test needs no seeded artifact directory. Seed one
+only to exercise a specific state, such as a file where the directory should be.
+Ambient disk state is never visible to the in-memory host.
 
 Results include bounded streams/exit code, a discriminated JSON envelope for JSON
 runs, delivery manifests for either format, host calls, and typed handler/context,
@@ -56,7 +70,7 @@ named contract assertion failures.
 | `single-guidance-arbitration` | Different handler/rule instructions; exactly one arbitration and one conflict retaining both instructions, firing evidence, stop instruction and exit 1. |
 | `unknown-totals` | Inline truncated page; unknown total without invented count, exact returned count and read continuation. |
 | `shell-safe-references` | Delivered hint and rendered invocation; independent shell-subset decoding preserves original tokens and rejects expansion/operators, unquoted reserved words and assignment-like executables. |
-| `unicode-spill` | Inline JSON at the exact byte bound and one astral character over it; code-unit length fits while UTF-8 exceeds the bound; manifest and full artifact bytes match the original response. |
+| `unicode-spill` | Inline JSON at the exact byte bound and one astral character over it; code-unit length fits while UTF-8 exceeds the bound; manifest and full artifact bytes match the original response; spill metadata reports the attempted bytes and budget, with no `KERNEL_OUTPUT` issue. |
 | `operation-recovery` | Applied/unknown operation followed by artifact write failure; known effect/recovery and required instruction survive JSON/text delivery with output failure. |
 
 `tests/fixtures/testkit-invalid.mjs` deliberately corrupts one invariant in each
@@ -85,14 +99,29 @@ shape:
 ```
 
 Call `expectDisclosureParity(cli, inventory, observations, options?)` with the
-actual JSON/text runs and their disclosed field inventories. Consumer assertions
-must derive those field inventories from their projections; generic text has no
-universal field parser. Each observation contains command, textFields, jsonFields,
-text and json. JSON-only extras must exactly equal the inventory entry. Unknown
-commands, duplicates, missing rationale/deletion condition, empty fields, unused
-entries, fields that no longer differ, and uncovered differences fail. Pass the
-conditions verified as satisfied in `options.satisfiedDeletionConditions`; matching
-entries must then be deleted. The checker does not interpret arbitrary prose.
+actual JSON/text runs and their disclosed field inventories. Each observation
+contains command, textFields, jsonFields, text and json. JSON-only extras must
+exactly equal the inventory entry. Unknown commands, duplicates, missing
+rationale/deletion condition, empty fields, unused entries, fields that no longer
+differ, and uncovered differences fail, and each message names the command,
+exception or field involved. Field differences are collected across all
+observations and reported in one error, in command-path order:
+
+```text
+disclosure: parity differs for 2 commands:
+"items list": text-only ["summary"]; unlisted JSON-only ["receipt"]
+"items show": stale exception fields ["legacy"]
+```
+
+Pass the conditions verified as satisfied in `options.satisfiedDeletionConditions`;
+matching entries must then be deleted.
+
+The helper validates the inventories you supply and the byte bounds, not the
+semantic equivalence of arbitrary text. It cannot see a fact that text states only
+in prose. Derive each field inventory independently from its own projection, and
+add direct assertions for prose-only facts. Building the text inventory by
+searching the text for JSON leaf values does not check both directions: it can
+never find a text-only fact, so a pass would overstate what was verified.
 
 Every observation checks both streams against the CLI's configured budget. The
 inventory accepts no bound override or disable switch. Compiler fixtures separately

@@ -2,9 +2,13 @@ import type { RegistryNode } from "./registry.js";
 import { checkCaller, checkName, invalidInput, scalar } from "./input-model.js";
 import type { CheckedInput, FlagEntry } from "./input-model.js";
 
-export type TokenResolution =
-  | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string; readonly json: boolean }
-  | { readonly kind: "leaf"; readonly node: RegistryNode; readonly input: CheckedInput; readonly json: boolean };
+/** json is the production selection. explicitJson is defined only for exactly one
+ * syntactically valid --json[=true|false] before --, so a test harness can detect a
+ * contradiction without inventing a duplicate flag. */
+export type FormatObservation = { readonly json: boolean; readonly explicitJson: boolean | undefined };
+export type TokenResolution = FormatObservation & (
+  | { readonly kind: "offline"; readonly route: "help" | "version" | "exit-codes"; readonly path: string }
+  | { readonly kind: "leaf"; readonly node: RegistryNode; readonly input: CheckedInput });
 
 function tokenValue(definition: FlagEntry["definition"]["value"], token: string | boolean, label: string, path: readonly string[]): string | number | boolean {
   try {
@@ -24,7 +28,7 @@ function tokenValue(definition: FlagEntry["definition"]["value"], token: string 
 /** Globals may surround route tokens; command-specific flags follow the leaf.
  * Retain format before reporting any refusal. Keep scanning after lexical errors
  * so option ordering cannot change error representation; never scan past --. */
-export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv: readonly string[], retainFormat: (json: boolean) => void = () => {}): TokenResolution {
+export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv: readonly string[], retainFormat: (format: FormatObservation) => void = () => {}): TokenResolution {
   if (!Array.isArray(argv) || argv.some(token => typeof token !== "string" || token.includes("\0"))) throw new TypeError("Expected argv string tokens.");
   const sharedFlags: Record<string, FlagEntry> = Object.create(null);
   const familyFlags = Object.values(nodes).find(candidate => candidate.model)?.model?.flags ?? {};
@@ -86,7 +90,10 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   const bool = (name: string): boolean => Object.hasOwn(rawFlags, name) ? tokenValue({ kind: "boolean" }, rawFlags[name]![0]!, `flag --${name}`, ["flags", name]) === true : false;
   let json = false;
   try { json = bool("json"); } catch (error) { rememberError(error); }
-  retainFormat(json);
+  const formats = rawFlags["json"];
+  const single = formats?.length === 1 ? formats[0] : undefined;
+  const explicitJson = single === true || single === "true" ? true : single === "false" ? false : undefined;
+  retainFormat({ json, explicitJson });
   if (scanError) throw scanError;
   for (const name of Object.keys(rawFlags)) {
     const entry = (node.model?.flags ?? sharedFlags)[name];
@@ -96,7 +103,7 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   }
   const help = bool("help"); const version = bool("version");
   if (help && (version || namedOffline) || version && namedOffline && namedOffline !== "version") throw new TypeError("Conflicting offline routes.");
-  if (help || version || namedOffline || !node.path && argv.length === 0) return { kind: "offline", route: help ? "help" : namedOffline ?? (version ? "version" : "help"), path: node.path, json };
+  if (help || version || namedOffline || !node.path && argv.length === 0) return { kind: "offline", route: help ? "help" : namedOffline ?? (version ? "version" : "help"), path: node.path, json, explicitJson };
   if (!node.model) throw new TypeError("A group requires a command or --help.");
   const callerFlags: Record<string, string | number | boolean | readonly (string | number | boolean)[]> = Object.create(null);
   const extra: { file?: string; out?: string; level?: string; passthrough?: readonly string[] } = {};
@@ -126,5 +133,5 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
   }
   if (offset < positionals.length) throw new TypeError("Unexpected positional argument.");
   if (passthrough !== undefined) extra.passthrough = passthrough;
-  return { kind: "leaf", node, input: checkCaller(model, { args, flags: callerFlags, ...extra }, false), json };
+  return { kind: "leaf", node, input: checkCaller(model, { args, flags: callerFlags, ...extra }, false), json, explicitJson };
 }

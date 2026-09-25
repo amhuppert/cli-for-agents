@@ -30,3 +30,11 @@ accepts<readonly GuidanceCandidate[]>(batch.candidates);
 const input: ArbitrationInput = { commandPath: "read", handler: { instruction: instruction("handler", "Wait.") }, evaluated: batch, conflictSink: event => { accepts<"guidance.conflict">(event.type); } };
 arbitrate(input);
 accepts<AnyResult>({ ok: true, data: null, issues: batch.issues });
+
+// An automatic spill discloses the attempted inline size beside the artifact manifest.
+import { bytes, type AnyPayload, type ArtifactManifest } from "cli-for-agents";
+declare const manifest: ArtifactManifest;
+accepts<AnyPayload>({ kind: "artifact", artifact: manifest, summary: { omitted: true }, spill: { format: "text", inlineBytes: bytes(40000), maxBytes: bytes(32768) } });
+accepts<AnyPayload>({ kind: "artifact", artifact: manifest, summary: null });
+declare const spilled: Extract<AnyPayload, { kind: "artifact" }>;
+if (spilled.spill) accepts<"text" | "json">(spilled.spill.format);

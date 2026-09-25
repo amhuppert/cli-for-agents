@@ -4,3 +4,4 @@ dist/
 .cc/temp/
 .DS_Store
 .worktrees
+memory-bank/

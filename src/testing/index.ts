@@ -13,7 +13,8 @@ import { cliConfiguration, cliRegistry, commandCli, checkMembership, rebindInvoc
 import { invocationArgv } from "../internal/invocations.js";
 import { observeRun } from "../internal/test-observation.js";
 import type { Observation } from "../internal/test-observation.js";
-import { createCli, runCli, decodeEnvelope } from "../runtime/index.js";
+import { createCli, decodeEnvelope } from "../runtime/index.js";
+import { runProduction } from "../internal/runtime.js";
 import type { GuidanceEvent } from "../guidance/index.js";
 import type { AnyEnvelope } from "../results.js";
 import type { Cli, Environment, Host, RunResult } from "../runtime/index.js";
@@ -22,7 +23,7 @@ import type { Bytes, Milliseconds } from "../values.js";
 /** Runner-neutral tests: applications keep their real domain services when useful. */
 export type ContractCase = { readonly name: string; readonly run: () => Promise<void> };
 export type HostCall =
-  | { readonly kind: "read" | "write" | "canonicalPath" | "kind"; readonly path: string }
+  | { readonly kind: "read" | "write" | "canonicalPath" | "kind" | "ensureDirectory"; readonly path: string }
   | { readonly kind: "stdin" | "sha256" | "clock" }
   | { readonly kind: "sleep"; readonly duration: Milliseconds };
 export type TestHost = Host & Brand<"TestHost"> & {
@@ -30,8 +31,11 @@ export type TestHost = Host & Brand<"TestHost"> & {
   readonly filesSnapshot: () => Readonly<Record<string, Uint8Array>>;
   readonly advance: (duration: Milliseconds) => void;
 };
+/** Virtual POSIX filesystem. Seeded files create their parents; directories seed
+ * explicit empty directories. Seeding records no calls. */
 export function createTestHost(options?: {
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
+  readonly directories?: readonly string[];
   readonly stdin?: string;
   readonly now?: number;
 }): TestHost { return makeTestHost(options); }
@@ -65,12 +69,10 @@ export async function runForTest<Contexts>(cli: Cli<Contexts>, input: readonly s
   if (Array.isArray(input)) tokens = input;
   else tokens = invocationArgv(rebindInvocation(registry, input));
   if (options.format !== "text" && options.format !== "json") throw new TypeError("Invalid test format.");
-  const initial = resolve(registry, tokens);
-  const initialJson = initial.kind === "leaf" ? initial.invocation.json : initial.json;
-  const argv = initialJson === (options.format === "json") ? [...tokens] : [`--json=${options.format === "json"}`, ...tokens];
-  const resolution = resolve(registry, argv);
-  const json = resolution.kind === "leaf" ? resolution.invocation.json : resolution.json;
-  if (json !== (options.format === "json")) throw new TypeError("Input conflicts with test format.");
+  // Only one valid explicit format flag can contradict the request; malformed or
+  // duplicate format flags stay testable as ordinary usage failures.
+  const { explicitJson } = resolve(registry, tokens);
+  if (explicitJson !== undefined && explicitJson !== (options.format === "json")) throw new TypeError("Input conflicts with test format.");
   let selected = cli;
   if (options.contexts !== undefined) {
     const supplied = options.contexts;
@@ -90,7 +92,7 @@ export async function runForTest<Contexts>(cli: Cli<Contexts>, input: readonly s
   const calls: HostCall[] = [];
   const host = captureHost(options.host, calls);
   try {
-    const result = await runCli(selected, { argv, env: options.env ?? {}, host, signal: controller.signal });
+    const result = await runProduction(selected, { argv: tokens, env: options.env ?? {}, host, signal: controller.signal }, { format: options.format });
     const delivered = observation.envelope;
     if (!delivered) throw new Error("Runtime did not capture delivery evidence.");
     const evidence = { ...result,

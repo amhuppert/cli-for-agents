@@ -195,9 +195,11 @@ export type Prepared<Path extends string, Data> = Brand<"Prepared", Path> & {
   readonly value: Data;
   readonly payloadHash: Sha256;
 };
-export type Preparation<Data, Code extends string = string> =
-  | { readonly ok: true; readonly value: Data; readonly error?: never }
-  | (Failure<never, Code> & { readonly value?: never });
+/** The value stays opaque and reaches only commit. A validation twin returns the optional
+ * JSON-safe preview and successful guidance; a refusal applies to check and write alike. */
+export type Preparation<Data, Code extends string = string, Preview = JsonValue> =
+  | ({ readonly ok: true; readonly value: Data; readonly preview?: JsonData<Preview>; readonly error?: never } & HandlerGuidance)
+  | (Failure<never, Code> & { readonly value?: never; readonly preview?: never });
 
 /** Only app-reported identifiers may claim durable recovery; never synthesize an ID. */
 export type RecoveryReference = { readonly kind: string; readonly id: string };
@@ -313,7 +315,7 @@ export function decodeWireEnvelope(value: unknown): AnyEnvelope {
     assertRecord(payload);
     if (payload["kind"] === "inline") assertFields(payload, ["kind", "data"]);
     else if (payload["kind"] === "artifact") {
-      assertFields(payload, ["kind", "summary", "artifact"]);
+      assertFields(payload, ["kind", "summary", "artifact"], ["spill"]);
       const artifact = payload["artifact"];
       assertRecord(artifact);
       assertFields(artifact, ["path", "format", "mediaType", "bytes", "sha256", "reason", "contains"]);
@@ -324,6 +326,16 @@ export function decodeWireEnvelope(value: unknown): AnyEnvelope {
       assertNonnegativeInteger(artifact["bytes"]);
       assertWireHash(artifact["sha256"]);
       assertSerializedLimit(artifact, protocolLimits.manifest);
+      // Automatic spills always disclose the attempted size; other artifacts never do.
+      if (artifact["reason"] === "stdout_budget_exceeded") {
+        const spill = payload["spill"];
+        assertRecord(spill);
+        assertFields(spill, ["format", "inlineBytes", "maxBytes"]);
+        assertWireEnum(spill["format"], ["text", "json"]);
+        const inlineBytes = spill["inlineBytes"], maxBytes = spill["maxBytes"];
+        assertNonnegativeInteger(inlineBytes); assertNonnegativeInteger(maxBytes);
+        if (maxBytes < protocolLimits.minimumOutput || inlineBytes <= maxBytes) throw new TypeError("Invalid spill metadata.");
+      } else if (Object.hasOwn(payload, "spill")) throw new TypeError("Only automatic spills carry spill metadata.");
     } else throw new TypeError("Invalid payload kind.");
   }
   if (ok) assertIssues(envelope["issues"]);

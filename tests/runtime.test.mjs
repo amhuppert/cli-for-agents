@@ -222,7 +222,8 @@ for (const json of [true, false]) test(`applied commit followed by spill failure
   else assert.equal(result.stdout, '');
 });
 test('domain failure remains primary after renderer, guidance, policy and release failures', async () => {
-  const x = fixture({ load: () => ({ default: { run: runner({ run: async () => ({ ok: false, error: x.errors.error('OFFLINE', { message: 'Disconnected', why: 'The service is unavailable.' }) }), text: () => { throw Error('render'); } }) } }),
+  // Oversized domain data needs an artifact, so the deferred policy failure is reported.
+  const x = fixture({ load: () => ({ default: { run: runner({ run: async () => ({ ok: false, error: x.errors.error('OFFLINE', { message: 'Disconnected', why: 'The service is unavailable.' }), data: { details: 'x'.repeat(10000) } }), text: () => { throw Error('render'); } }) } }),
     acquire: async () => ({ ok: true, app: {}, release: () => { throw Error('release'); } }), artifacts: { resolve: () => { throw Error('policy'); } }, guidance: { load: async () => { throw Error('guidance'); }, conflictSink: () => {} } });
   const value = wire(await run(x));
   assert.equal(value.error.code, 'OFFLINE');
@@ -527,4 +528,170 @@ test('passthrough tail cannot select JSON on refusal', async () => {
   const result = await run(x, ['inspect', '--bad', '--', '--json']);
   assert.equal(result.exitCode, 2); assert.equal(result.stdout, '');
   assert.match(result.stderr, /KERNEL_USAGE/); assert.deepEqual(x.events, []);
+});
+
+// Artifact policy causes are fixed framework text; resolver and host messages never leak.
+const policyCase = (artifacts, extra = {}) => fixture({ artifacts, ...extra });
+const whole = result => result.stdout + result.stderr;
+for (const json of [true, false]) {
+  for (const [label, artifacts] of [
+    ['missing', { directory: '/missing', forbiddenRoots: [] }],
+    ['forbidden', { directory: '/artifacts', forbiddenRoots: ['/'] }],
+    ['unavailable', { resolve: () => { throw Error('resolver secret'); } }],
+    ['invalid', { resolve: () => ({ directory: '', forbiddenRoots: 'nope' }) }],
+  ]) test(`inline result with a ${label} artifact policy succeeds without artifact filesystem work (${json ? 'JSON' : 'text'})`, async () => {
+    const x = policyCase(artifacts);
+    const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+    assert.equal(result.exitCode, 0, whole(result));
+    if (json) assert.deepEqual(wire(result).payload.data, { value: 42 });
+    assert.deepEqual(x.host.calls, []);
+  });
+  test(`forbidden artifact directory explains its cause when a response spills (${json ? 'JSON' : 'text'})`, async () => {
+    const x = policyCase({ directory: '/artifacts', forbiddenRoots: ['/'] }, { run: async () => ({ ok: true, data: { details: 'x'.repeat(10000) } }) });
+    const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+    assert.equal(result.exitCode, 1);
+    assert.match(whole(result), /Artifact directory \\?"\/artifacts\\?" is inside a forbidden root\./);
+    assert.equal(x.host.calls.some(call => call.kind === 'write'), false);
+  });
+  test(`applied write retains effect and recovery beside a forbidden-policy cause (${json ? 'JSON' : 'text'})`, async () => {
+    const x = policyCase({ directory: '/artifacts', forbiddenRoots: ['/artifacts'] }, { spec: { effects: 'write' },
+      run: async () => ({ effect: 'applied', recovery: receipt, result: { ok: true, data: { details: 'x'.repeat(10000) } } }) });
+    const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+    assert.equal(result.exitCode, 1);
+    assert.match(whole(result), /saved-42/);
+    assert.match(whole(result), /inside a forbidden root/);
+    if (json) { assert.equal(wire(result).effect, 'applied'); assert.deepEqual(wire(result).recovery, receipt); }
+    else assert.match(result.stderr, /^effect: applied$/m);
+  });
+  test(`primary domain failure keeps the forbidden-policy cause as a secondary diagnostic (${json ? 'JSON' : 'text'})`, async () => {
+    const x = policyCase({ directory: '/artifacts', forbiddenRoots: ['/artifacts'] }, {
+      run: async ({ ctx }) => ({ ok: false, error: ctx.errors.error('REFUSED', { message: 'Refused' }), data: { details: 'x'.repeat(10000) } }) });
+    const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+    assert.equal(result.exitCode, 1);
+    if (json) {
+      const value = JSON.parse(result.stdout);
+      assert.equal(value.error.code, 'REFUSED');
+      assert.ok(value.error.secondary.some(item => item.code === 'KERNEL_OUTPUT' && /inside a forbidden root/.test(item.message)), JSON.stringify(value.error.secondary));
+    } else {
+      assert.match(result.stderr, /^error: REFUSED: Refused$/m);
+      assert.match(result.stderr, /^secondary: KERNEL_OUTPUT: .*inside a forbidden root/m);
+    }
+  });
+  test(`resolver exceptions use fixed policy text without their message (${json ? 'JSON' : 'text'})`, async () => {
+    const x = policyCase({ resolve: () => { throw Error('resolver secret'); } }, { run: async () => ({ ok: true, data: { details: 'x'.repeat(10000) } }) });
+    const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+    assert.equal(result.exitCode, 1);
+    assert.match(whole(result), /Artifact policy could not be collected\./);
+    assert.doesNotMatch(whole(result), /resolver secret/);
+  });
+}
+
+const artifactWork = calls => calls.filter(call => ['canonicalPath', 'kind', 'ensureDirectory', 'write'].includes(call.kind));
+const big = { details: 'x'.repeat(10000) };
+for (const json of [true, false]) test(`automatic spill creates a missing configured artifact root (${json ? 'JSON' : 'text'})`, async () => {
+  const x = policyCase({ directory: '/work/new/artifacts', forbiddenRoots: ['/data'] }, { run: async () => ({ ok: true, data: big }) });
+  const result = await run(x, ['inspect', ...(json ? ['--json'] : [])]);
+  const calls = artifactWork(x.host.calls);
+  assert.equal(result.exitCode, 0, whole(result));
+  assert.equal(await x.host.files.kind('/work/new/artifacts'), 'directory');
+  const manifest = Object.keys(x.host.filesSnapshot()).find(path => path.startsWith('/work/new/artifacts/'));
+  assert.ok(manifest, 'spill must publish inside the created root');
+  if (json) assert.equal(wire(result).payload.artifact.path, manifest);
+  assert.deepEqual(calls.map(call => call.kind).filter(kind => kind !== 'canonicalPath'), ['kind', 'ensureDirectory', 'kind', 'kind', 'write']);
+});
+test('explicit out creates the configured root but never a nested --out parent', async () => {
+  const levels = { spec: { levels: { full: { output: 'artifact-eligible' } } }, load: () => ({ default: { run: async () => ({ ok: true, data: {} }), levels: { full: async () => ({ ok: true, data: { value: 42 } }) } } }) };
+  const x = policyCase({ directory: '/made', forbiddenRoots: [] }, levels);
+  const created = wire(await run(x, ['inspect', '--full', '--json', '--out', 'chosen.json']));
+  assert.equal(created.payload.artifact.path, '/made/chosen.json');
+  const y = policyCase({ directory: '/made', forbiddenRoots: [] }, levels);
+  const nested = await run(y, ['inspect', '--full', '--json', '--out', 'nested/chosen.json']);
+  assert.equal(nested.exitCode, 1);
+  assert.match(nested.stdout, /parent directory does not exist/);
+  assert.equal(await y.host.files.kind('/made'), 'directory');
+  assert.equal(await y.host.files.kind('/made/nested'), 'missing');
+});
+test('binary output creates the configured artifact root', async () => {
+  const data = new Uint8Array([1, 2, 3]);
+  const x = policyCase({ directory: '/exports', forbiddenRoots: [] }, { spec: { output: 'binary' }, run: async () => ({ ok: true, binary: binaryArtifact({ bytes: data, mediaType: 'application/octet-stream', basename: 'export.bin', summary: { count: 3 } }) }) });
+  const value = wire(await run(x));
+  assert.ok(value.payload.artifact.path.startsWith('/exports/'));
+  assert.deepEqual(x.host.filesSnapshot()[value.payload.artifact.path], data);
+});
+test('a forbidden configured root is refused before any directory creation', async () => {
+  const x = policyCase({ directory: '/blocked/artifacts', forbiddenRoots: ['/blocked'] }, { run: async () => ({ ok: true, data: big }) });
+  const result = await run(x);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /Artifact directory \\"\/blocked\/artifacts\\" is inside a forbidden root\./);
+  assert.equal(x.host.calls.some(call => call.kind === 'ensureDirectory' || call.kind === 'write'), false);
+  assert.equal(await x.host.files.kind('/blocked'), 'missing');
+});
+for (const [code, cause] of [['EACCES', /the OS denied permission/], ['ENOSPC', /the filesystem has no space/], ['ENOTDIR', /ancestor that is not a directory/], [undefined, /could not be created or inspected; check permissions and available space/]]) {
+  test(`artifact root creation failure explains ${code ?? 'a generic'} cause without host text`, async () => {
+    const host = createTestHost();
+    const injected = { ...host, files: { ...host.files, ensureDirectory: async () => { throw Object.assign(Error('host secret'), code ? { code } : {}); } } };
+    const x = policyCase({ directory: '/artifacts', forbiddenRoots: [] }, { host: injected, run: async () => ({ ok: true, data: big }) });
+    for (const format of [['--json'], []]) {
+      const result = await run(x, ['inspect', ...format]);
+      assert.equal(result.exitCode, 1);
+      assert.match(whole(result), cause);
+      assert.match(whole(result), /\/artifacts/);
+      assert.doesNotMatch(whole(result), /host secret/);
+    }
+  });
+}
+test('a file at the configured root is refused without replacement', async () => {
+  const x = policyCase({ directory: '/artifacts', forbiddenRoots: [] }, { host: createTestHost({ files: { '/artifacts': 'keep' } }), run: async () => ({ ok: true, data: big }) });
+  const result = await run(x);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /is a file, not a directory/);
+  assert.equal(new TextDecoder().decode(x.host.filesSnapshot()['/artifacts']), 'keep');
+});
+test('release precedes directory preparation and app-derived forbidden roots survive release', async () => {
+  const order = [];
+  const host = createTestHost();
+  const injected = { ...host, files: { ...host.files, canonicalPath: async path => { order.push('canonical'); return host.files.canonicalPath(path); }, ensureDirectory: async (...args) => { order.push('ensure'); return host.files.ensureDirectory(...args); } } };
+  const app = { forbidden: ['/app/data'] };
+  const x = policyCase({ resolve: ({ app }) => ({ directory: '/app/data/artifacts', forbiddenRoots: app.forbidden }) }, { host: injected,
+    acquire: async () => ({ ok: true, app, release: () => { order.push('release'); app.forbidden.length = 0; } }), run: async () => ({ ok: true, data: big }) });
+  const result = await run(x);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /inside a forbidden root/);
+  assert.equal(order[0], 'release');
+  assert.equal(order.includes('ensure'), false);
+});
+test('earlier guidance survives a deferred policy failure', async () => {
+  const x = policyCase({ resolve: () => { throw Error('policy secret'); } }, { run: async () => ({ ok: true, data: big }),
+    guidance: { load: async () => ({ default: async ({ command }) => instructionBatch(command) }), conflictSink: () => {} } });
+  const value = wire(await run(x));
+  assert.equal(value.error.code, 'KERNEL_OUTPUT');
+  assert.match(JSON.stringify(value.error), /Artifact policy could not be collected/);
+  assert.equal(value.instruction, 'Inspect saved state.');
+});
+test('unknown write recovery survives a deferred policy failure', async () => {
+  const unknown = recoveryFacts([{ kind: 'attempt', id: 'attempt-7' }]);
+  const x = policyCase({ directory: '/artifacts', forbiddenRoots: ['/artifacts'] }, { spec: { effects: 'write' },
+    run: async ({ ctx }) => ({ effect: 'unknown', recovery: unknown, result: { ok: false, error: ctx.errors.error('REFUSED', { message: 'Unconfirmed' }), data: big } }) });
+  const value = wire(await run(x));
+  assert.equal(value.error.code, 'REFUSED');
+  assert.equal(value.effect, 'unknown');
+  assert.deepEqual(value.recovery, unknown);
+  assert.ok(value.error.secondary.some(item => /inside a forbidden root/.test(item.message)));
+});
+test('static policy spills oversized offline help without loading handlers or contexts', async () => {
+  const x = fixture({ spec: { description: 'é'.repeat(16000) }, load: () => { throw Error('off-path handler'); }, acquire: () => { throw Error('off-path provider'); }, artifacts: { directory: '/offline', forbiddenRoots: [] } });
+  const value = wire(await run(x, ['inspect', '--help', '--json']));
+  assert.equal(value.ok, true);
+  assert.equal(value.payload.artifact.reason, 'stdout_budget_exceeded');
+  assert.ok(value.payload.artifact.path.startsWith('/offline/'));
+  assert.deepEqual(x.events, []);
+});
+test('dynamic policy is never resolved for offline help', async () => {
+  let resolved = 0;
+  const x = fixture({ spec: { description: 'é'.repeat(16000) }, artifacts: { resolve: () => { resolved++; return { directory: '/offline', forbiddenRoots: [] }; } } });
+  const value = wire(await run(x, ['inspect', '--help', '--json']));
+  assert.equal(value.ok, true);
+  assert.deepEqual(value.payload.data, { omitted: true });
+  assert.equal(resolved, 0);
+  assert.deepEqual(artifactWork(x.host.calls), []);
 });

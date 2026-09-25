@@ -320,3 +320,34 @@ The contract suite covers offline help; both applications' parser edge-case matr
 3. **Package placement** (this repository or its own) is decided after the pilot proves consumption from both applications.
 
 Two smaller ones the design preserves as your existing policy: Command Center's reads hard-fail on build skew while the skill's default is warn-only, and kb's decision to ship no reminder rules until an incident earns one stands as a valid default.
+
+<!-- Not part of the verbatim proposal above: an implementation addendum. -->
+## Addendum: implemented divergences after the book-ingest retrospective (cli-for-agents#3)
+
+The proposal's API spellings are historical; [the public contract](public-contract.md)
+is canonical. The second consumer (book-ingest) changed these boundaries:
+
+- **Host capability.** `Host.files.ensureDirectory` creates a directory and its
+  missing ancestors without replacing entries. Node, test and capture hosts
+  implement it; `createTestHost({ directories })` seeds empty virtual directories.
+- **Artifact policy lifecycle.** The post-operation hook only captures a detached
+  policy (or a deferred resolver failure) while the app is alive. Delivery, after
+  release, canonicalizes it, refuses forbidden containment, and creates the
+  configured directory only when a response needs an artifact. Small inline
+  responses do no artifact filesystem work. Owners: `src/internal/runtime.ts`
+  (capture) and `src/internal/artifacts.ts` (preparation, delivery).
+- **Validation previews.** A successful `prepare` may return a JSON-safe `preview`
+  and one hint or instruction beside its opaque value. The twin returns
+  `{ valid, payloadHash, preview? }` and that guidance; commit still receives only
+  `{ value, payloadHash }`. After a successful check the kernel suggests the write
+  when the invocation replays faithfully (`src/internal/invocations.ts`);
+  preparation and rule hints win, and instructions suppress it.
+- **References.** `CliOptions.description` supplies root prose. Reference
+  generation and validation accept a `{ commands }` selection, and the writer
+  reports UTF-8 block/document sizes against `maxBytes` instead of trimming
+  (`src/internal/help.ts`, `src/internal/references.ts`).
+- **Spill.** A successful automatic spill is delivery metadata,
+  `payload.spill = { format, inlineBytes, maxBytes }`, rendered as one `notice:`
+  line in text; it is no longer a `KERNEL_OUTPUT` issue.
+- **Packaging.** `prepack` rebuilds `dist` from source before `npm pack` or
+  `yalc publish --scripts`; a failed build publishes nothing.

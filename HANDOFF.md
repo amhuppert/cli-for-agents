@@ -3,7 +3,9 @@
 A dependency-free private TypeScript library for command-line tools that AI agents
 call. It is implemented and exercised through its public package exports, real
 process delivery and two executable in-repository pilots. The package is private and
-unpublished, and nothing outside this repository imports it.
+unpublished; the author's own book-ingest and Command Center projects consume fresh
+local snapshots through yalc (see the README), and are migrated in their own rollouts
+([consumer migration guide](docs/implementation/consumer-migration.md)).
 
 ## Start here
 
@@ -30,11 +32,16 @@ proposed API spellings are historical.
   acquisition, selected contexts, validated reports and release.
 - `guidance/index.ts`: candidate evaluation; `internal/response.ts`:
   sole arbitration, envelope assembly and text projection.
-- `internal/artifacts.ts`: policy and final byte-bound delivery;
-  `internal/node-host.ts`: filesystem/clock/hash capabilities;
+- `internal/artifacts.ts`: policy capture, on-demand directory preparation, spill
+  metadata and final byte-bound delivery; `internal/node-host.ts`:
+  filesystem/directory/clock/hash capabilities;
   `internal/process.ts`: actual stream writes and drain-before-exit.
-- `internal/runtime.ts`: production orchestration; `internal/help.ts` and
-  `references.ts`: offline help and asynchronous document checks/replacement.
+- `internal/runtime.ts`: production orchestration; `internal/invocations.ts`:
+  canonical references and the generated post-validation write hint;
+  `internal/help.ts` and `references.ts`: offline help, reference selection and
+  asynchronous document checks/replacement with size reports.
+- `scripts/prepack.mjs`: rebuilds `dist` from source before every pack or yalc
+  publication; `tests/packaging.test.mjs` proves it against real archives.
 - `src/testing`: runner-neutral contract cases and observations of real `runCli`.
   Domain consumers supply all seven fixture callbacks to prove their own services.
 
@@ -80,8 +87,8 @@ local errors before requests, rule guidance and resumable references; its
 service is a test fixture. Preparation purity, durable domain truth, transport
 authentication and event-log durability remain application responsibilities.
 
-Consumer migration and wire cutover, Commander replacement, publication/package
-placement, optional transport/job/gate/identity/digest kits, plugin synchronization,
+Consumer migration and wire cutover, Commander replacement, registry publication,
+commit/build provenance stamps, optional transport/job/gate/identity/digest kits, plugin synchronization,
 live progress, streaming artifacts, raw-output escape hatches and interactive/TTY
 behavior remain outside delivered scope. The copied plugins under `plugins/` are
 reference material; this repository does not synchronize their upstream copies.

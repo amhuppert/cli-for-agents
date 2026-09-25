@@ -2,7 +2,7 @@ import { recordTestEvent } from "./test-observation.js";
 import type { ErrorDefinitions, FamilyCode, OperationOutcome, UnknownAcknowledgment, Issue, SecondaryFailure } from "../results.js";
 import type { ContextProviders, ResolvedRunRequest, PostOperationContext, SelectedContext } from "../runtime/index.js";
 import type { EvaluatedGuidance } from "../guidance/index.js";
-import type { ResolvedArtifactPolicy } from "../disclosure.js";
+import type { CapturedArtifactPolicy } from "./artifacts.js";
 import type { Flag } from "../input.js";
 import type { Sha256 } from "../values.js";
 import type { Brand } from "./brand.js";
@@ -34,8 +34,8 @@ export function unknownAcknowledgment<Contexts, Code extends string, G extends R
 export type PostOperationFacts = {
   /** Missing when no guidance is configured or the provider failed. */
   readonly guidance?: EvaluatedGuidance;
-  /** Missing when policy resolution fails; collected guidance still survives. */
-  readonly artifacts?: ResolvedArtifactPolicy;
+  /** App-free snapshot or deferred failure; delivery prepares it only when needed. */
+  readonly artifacts?: CapturedArtifactPolicy;
   readonly issues: readonly Issue[];
 };
 /** The runtime hook catches each collection/policy failure and returns accumulated
@@ -151,8 +151,12 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       try { preparation = checkedPreparation(returned, errors); }
       catch { throw new ContractFailure(); }
       if (!preparation.ok) returned = preparation;
-      else if (invocation.validation) returned = { ok: true, data: { valid: true, payloadHash: local.input.payloadHash } };
-      else {
+      else if (invocation.validation) {
+        // The twin reports only framework-owned facts, the preview, and check guidance.
+        const { ok: _ok, value: _opaque, preview, ...guidance } = preparation;
+        returned = { ok: true, data: { valid: true, payloadHash: local.input.payloadHash,
+          ...("preview" in preparation ? { preview } : {}) }, ...guidance };
+      } else {
         request.signal.throwIfAborted();
         const hash = local.input.payloadHash;
         if (!hash) throw new ContractFailure();
@@ -188,7 +192,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
     if (!Array.isArray(captured["issues"]) || guidance !== undefined && (typeof guidance !== "object" || guidance === null || Array.isArray(guidance))) {
       throw new TypeError("Invalid post-operation facts.");
     }
-    const artifacts = captured["artifacts"] as ResolvedArtifactPolicy | undefined;
+    const artifacts = captured["artifacts"] as CapturedArtifactPolicy | undefined;
     facts = Object.freeze({ issues: frozenJson(returned.issues), ...(guidance !== undefined ? { guidance: frozenJson(guidance) } : {}),
       ...(artifacts !== undefined ? { artifacts } : {}) });
   } catch {

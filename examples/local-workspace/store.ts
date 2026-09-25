@@ -27,8 +27,8 @@ async function read(input: StoreInput, root: string): Promise<State> {
 export async function initialize(input: StoreInput): Promise<string> {
   const root = input.env['WORKSPACE_HOME'] ? configuredRoot(input.env) : await mkdtemp(`${input.env['TMPDIR'] ?? '/tmp'}/workspace-`);
   const state: State = { nodes: ['Alpha', 'Beta', 'Gamma', 'Delta'].map((title, index) => ({ id: `n${index + 1}`, title, body: `${title} document`, tags: index < 2 ? ['work', 'shared'] : ['personal'] })), receipts: [] };
+  // The kernel creates the artifact directory on demand; only domain storage is set up here.
   await mkdir(`${root}/data`, { recursive: true });
-  await mkdir(`${root}/artifacts`, { recursive: true });
   await input.host.files.writeAtomic(`${root}/data/state.json`, encoder.encode(JSON.stringify(state)), 'reuse-identical-or-refuse');
   return root;
 }

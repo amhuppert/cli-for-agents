@@ -15,6 +15,8 @@ export type ArbitrationInput = {
   readonly handler: HandlerGuidance;
   /** The one batch evaluated for this run, when guidance is configured. */
   readonly evaluated?: EvaluatedGuidance;
+  /** Kernel-generated advice, already rebound; handler and rule hints win over it. */
+  readonly fallbackHint?: Hint;
   readonly conflictSink: ConflictSink;
 };
 export type ArbitratedGuidance = Brand<"ArbitratedGuidance"> & {
@@ -91,7 +93,12 @@ export async function arbitrate(input: ArbitrationInput): Promise<ArbitratedGuid
   }
   try { assertSerializedLimit(reminders, protocolLimits.reminders); }
   catch { invalid("Selected reminders exceed their combined protocol limit."); reminders.length = 0; }
-  const selectedHint = handlerHint ?? candidates.find(candidate => candidate.tier === "hint")?.value;
+  let fallbackHint: Hint | undefined;
+  if (input.fallbackHint !== undefined) {
+    try { fallbackHint = hint(input.fallbackHint.invocation, input.fallbackHint.action); }
+    catch { invalid("Invalid fallback hint."); }
+  }
+  const selectedHint = handlerHint ?? candidates.find(candidate => candidate.tier === "hint")?.value ?? fallbackHint;
   const selectedReminders: ReminderList = reminders[0] ? reminders[1] ? [reminders[0], reminders[1]] : [reminders[0]] : [];
   const guidance: FinalGuidance = { reminders: selectedReminders,
     ...(selectedInstruction ? { instruction: selectedInstruction } : selectedHint ? { hint: selectedHint } : {}) };
@@ -200,7 +207,8 @@ export function renderResponse(response: AssembledResponse, format: "text" | "js
   const lines: string[] = [];
   if (!envelope.ok) {
     const error = envelope.error;
-    lines.push(`error: ${error.code}: ${lineText(error.message)}`, `why: ${lineText(error.why)}`);
+    // A rationale identical to the message adds no information; JSON retains it.
+    lines.push(`error: ${error.code}: ${lineText(error.message)}`, ...(error.why === error.message ? [] : [`why: ${lineText(error.why)}`]));
     // Shell-quoted references already preserve token boundaries. Prose escaping
     // after quoting would change allowed Unicode characters inside the tokens.
     for (const [label, reference] of [["doctor", error.doctor], ["continuation", error.continuation]] as const) {
@@ -233,7 +241,7 @@ function assertPrimaryText(value: unknown): asserts value is string {
     throw new TypeError("Primary text contains controls or is not text.");
 }
 function neutralizeReservedLabels(value: string): string {
-  return value.replace(/(^|\n)(?=\s*(?:hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|artifact):)/gi, "$1| ");
+  return value.replace(/(^|\n)(?=\s*(?:hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|notice|artifact):)/gi, "$1| ");
 }
 
 /** Escape prose/JSON display fields only; never rewrite a shell invocation. */

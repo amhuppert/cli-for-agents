@@ -34,9 +34,9 @@ document; reconcile this map against `src` when a public signature changes.
 | runtime | nodeHost | node-host | Lazy bounded Node capabilities; runCli and reference tooling |
 | runtime | main | process-adapter | Drain streams, EPIPE, exit, optional compile cache; executables |
 | runtime | helpNode | help-reference | Structured static registry projection; runtime offline route |
-| runtime | commandReference | help-reference | Offline marker-block content generation; reference tooling |
-| runtime | validateReferences | help-reference | Async file existence/canonical containment via lazy/injected host; build/check tooling |
-| runtime | writeCommandReference | help-reference | Validates references then write/check named block; consumer tooling |
+| runtime | commandReference | help-reference | Offline marker-block content for the whole CLI or a `{ commands }` selection with twins/ancestors; reference tooling |
+| runtime | validateReferences | help-reference | Async file existence/canonical containment for selected nodes' skills via lazy/injected host; build/check tooling |
+| runtime | writeCommandReference | help-reference | Validates references then write/check named block, reporting UTF-8 block/document sizes; consumer tooling |
 | runtime | decodeEnvelope | response-assembly | Validates untrusted envelope and bounded protocol; testkit/transport consumers |
 | runtime | renderInvocation | registry-parser | Safe token rendering; response/help |
 | guidance | hint | kernel-values | Bounded action and invocation constructor; handlers/rules |
@@ -44,12 +44,12 @@ document; reconcile this map against `src` when a public signature changes.
 | guidance | defineReminderRule | guidance-candidates | Checked reminder declaration; state authority |
 | guidance | defineSteering | guidance-candidates | Checked hint/instruction rule; state authority |
 | guidance | evaluateGuidance | guidance-candidates | Candidates/provenance/firings only; rules run in the CLI process |
-| testing | createTestHost | node-host | Implements file snapshots/call recording and deterministic clock/sleep cancellation; consumer-testkit and contract tests consume it |
-| testing | runForTest | consumer-testkit | Concrete keyed contexts plus real runCli; consumers/pilots |
+| testing | createTestHost | node-host | Implements file/directory fixtures, snapshots, directory creation, call recording and deterministic clock/sleep cancellation; consumer-testkit and contract tests consume it |
+| testing | runForTest | consumer-testkit | Concrete keyed contexts plus the production runtime rendered in the requested format; explicit contradictory format flags throw; consumers/pilots |
 | testing | contractTests | consumer-testkit | Runner-neutral contract case inventory; consumers |
 | testing | expectBounded | consumer-testkit | Checks final serialized stream budget; consumer cases |
 | testing | createContractFixtures | consumer-testkit | Seven canonical fixture callbacks; consumers replace all callbacks to prove their domain paths |
-| testing | expectDisclosureParity | consumer-testkit | Actual projection inventories plus typed disclosure exceptions; final byte bound always applies |
+| testing | expectDisclosureParity | consumer-testkit | Caller-supplied projection inventories plus typed disclosure exceptions; one failure lists every mismatched command's field differences; final byte bound always applies |
 | testing | expectLazy | consumer-testkit | Declaration/help import laziness; consumer cases |
 
 The family method `defineCommand(spec,binding)` belongs to registry-parser;
@@ -68,7 +68,7 @@ policy resolver or artifact writer exists.
 | results | AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess, CliError, CommitReport, Effect, Envelope, ErrorCatalog, ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure, Preparation, Prepared, Result, Success | kernel-values owns constructors/catalog/recovery; execution-lifecycle owns preparation/provenance; response-assembly owns envelopes/classification |
 | disclosure | AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, ResolvedArtifactPolicy, Omission, Page, Payload, Total | page-disclosure (page/omission); artifact-delivery (policy/request/manifest); response-assembly (payload) |
 | runtime host/context | Environment, Host, ContextProvider, ContextProviders, SelectedContext, InputFileSource, PostOperationContext, GuidanceProvider, ArtifactPolicySource, CliOptions, Cli, RunRequest, ResolvedRunRequest, RenderedText, RunResult | node-host (capabilities); execution-lifecycle (acquisition/lifetime and immutable nonsecret file origins); runtime-composition (wiring); artifact-delivery (bounded RenderedText/RunResult) |
-| runtime help/reference | HelpContextProvider, HelpContext, DocumentationRoot, HelpFlag, HelpArgument, HelpNode, ReferenceIssue, ReferenceValidation, ReferenceHost, ReferenceOptions | help-reference |
+| runtime help/reference | HelpContextProvider, HelpContext, DocumentationRoot, HelpFlag, HelpArgument, HelpNode, ReferenceIssue, ReferenceValidation, ReferenceHost, ReferenceOptions, ReferenceSelection, ReferenceWriteResult | help-reference |
 | guidance | Hint, Instruction, RuleId, Reminder, ReminderList, HandlerGuidance, FinalGuidance, WireGuidance, ReminderRuleDefinition, ReminderRule, SteeringDefinition, SteeringRule, GuidanceRule, ConflictingInstruction, GuidanceConflict, GuidanceEvent, GuidanceEventSink, RuleRegistration, RuleFiring, ConflictEvent, FiringSink, ConflictSink, GuidanceProvenance, GuidanceCandidate, EvaluatedGuidance, GuidanceEvaluation | guidance-candidates owns rules/evaluation; response-assembly owns final selection; kernel-values owns bounded hint/instruction constructors |
 | testing host | HostCall, TestHost | node-host owns implemented file/clock/sleep capabilities and recording; consumer-testkit consumes them |
 | testing cases | ContractCase, TestRunResult, TestRunOptions, TestEvent, ContractCaseName, ContractEvidence, ContractFixtures, JsonTestRun, DisclosureException, DisclosureParity | consumer-testkit |
@@ -92,16 +92,20 @@ readonly JSON projection passed to `runner` and `writeRunner` text callbacks.
 | internal/execution: ExecutionResult / OperationOutcome | execution-lifecycle | post-operation hook, response-assembly | Application effects checked; private provenance separate from reports |
 | internal/execution: ExecutionResult.renderPrimary() → string | execution-lifecycle | response-assembly | Exact runner/level renderer closed over validated DTO or binary summary only; invoked after release and bounded by delivery |
 | internal/execution: unknownAcknowledgment | execution-lifecycle | execution failure handling | Registered path + optional payload hash only; no invented IDs or input secrets |
-| internal/execution: PostOperationHook → PostOperationFacts | runtime-composition implements hook | execution-lifecycle invokes before finalizer | Collect guidance and resolve app policy while app is alive; retain detached immutable facts |
+| internal/execution: PostOperationHook → PostOperationFacts | runtime-composition implements hook | execution-lifecycle invokes before finalizer | Collect guidance and capture the app-dependent artifact policy while app is alive; retain detached immutable facts; no artifact filesystem work |
 | internal/execution: CompletedExecution | execution-lifecycle | runtime-composition | Hook status and secondary failures; acquired context released exactly once after hook settles |
-| internal/artifacts: resolveArtifactPolicy | artifact-delivery | runtime-composition post-operation hook | Validate/canonicalize/freeze host-only policy before release |
+| internal/artifacts: captureArtifactPolicy → CapturedArtifactPolicy | artifact-delivery | runtime-composition post-operation hook; static policy for routes that never reach the hook | Shape-checked detached snapshot or deferred fixed-cause failure; no host access |
+| internal/artifacts: resolveArtifactPolicy(policy,host,signal) → ResolvedArtifactPolicy | artifact-delivery | internal/artifacts deliver, only when an artifact is needed | After release: canonicalize, refuse forbidden containment before creating anything, ensure only the configured root, classify fixed causes; cancellation stays KERNEL_CANCELLED |
+| internal/invocations: validationWriteHint(registry,parsedInvocation) → Hint \| undefined | registry-parser | runtime-composition after a successful twin, before arbitration | Rebound, reparsed faithful replay of original inputs as the write; omitted for stdin, supplied secrets, nonempty passthrough or an oversized reference |
+| internal/help: referencePaths(cli,selection) | help-reference | reference rendering and validation | Full registry or selected leaves plus generated twins, ancestors and root; refuses roots, groups and unknown paths |
+| internal/runtime: runProduction(cli,request,{ format? }) | runtime-composition | runCli; runForTest with a requested format | One pipeline; a selected format changes only the final representation |
 | internal/artifacts: writeArtifact | artifact-delivery | internal/artifacts deliver and deliverBinary | One atomic writer for spill/out/binary; canonical roots, symlinks, collisions, actual hash/bytes |
 | internal/artifacts: deliverBinary | artifact-delivery | internal/artifacts deliver | Finite request always becomes artifact; no inline/raw-stream path |
-| internal/response: arbitrate(ArbitrationInput) → ArbitratedGuidance | response-assembly | runtime-composition | Sole handler + local/authoritative candidate arbiter; required conflict sink |
+| internal/response: arbitrate(ArbitrationInput) → ArbitratedGuidance | response-assembly | runtime-composition | Sole handler + local/authoritative candidate arbiter; handler hint, then rule hint, then optional generated fallback; required conflict sink |
 | internal/response: assembleResponse(execution,options) → AssembledResponse | response-assembly | runtime-composition invokes; artifact-delivery consumes result | Central doctor, primary/secondary precedence and rendered primary text; retained effect/recovery and selected structured guidance; no final byte-bound claim |
 | internal/response: AssembledResponse | response-assembly | internal/artifacts deliver | Branded envelope + primary text + structured guidance + optional separate binary request; sufficient retained facts for bounded fallback without another arbitration |
 | internal/artifacts: validateOutputBudget(budget?) → Bytes | artifact-delivery | runtime-composition before execution | Default 32768; reject configured budgets below 8192 before handlers/context acquisition |
-| internal/artifacts: deliver(AssembledResponse,options) → RunResult | artifact-delivery | runtime-composition for every response class | Combined-stream serialized UTF-8 bound, inline/spill/out/binary selection, truthful manifests, emergency fallback and final bounded RunResult construction |
+| internal/artifacts: deliver(AssembledResponse,options) → RunResult | artifact-delivery | runtime-composition for every response class | Combined-stream serialized UTF-8 bound, inline/spill/out/binary selection, lazy policy preparation, spill metadata, truthful manifests, emergency fallback and final bounded RunResult construction |
 | internal/brand: Brand | kernel-values and owning validated boundaries | all owners | Unexported unique symbol; brands only after runtime checks |
 
 The erased runner's renderer is private state retained by execution-lifecycle's
@@ -114,10 +118,11 @@ AssembledResponse to artifact-delivery deliver with the retained policy. Assembl
 never writes artifacts or constructs the final bounded RunResult. Delivery never
 selects guidance again; it preserves the assembled primary classification and
 known effect/recovery when spill or serialization fails.
-If policy resolution fails after guidance collection, the runtime hook returns
-accumulated guidance/issues without artifacts. Failed hook results may retain
-partial facts too. Preserve those candidates and the known outcome; use bounded
-failure output without inventing an artifact directory. Decoder/renderer maps are private implementation
+If the policy resolver fails after guidance collection, the hook returns the
+accumulated guidance with a deferred policy failure; delivery reports it only when
+a response needs an artifact. Failed hook results may retain partial facts too.
+Preserve those candidates and the known outcome; use bounded failure output without
+inventing an artifact directory. Decoder/renderer maps are private implementation
 state owned by execution-lifecycle.
 
 ## Verification ownership

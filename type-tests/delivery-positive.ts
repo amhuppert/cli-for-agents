@@ -2,7 +2,7 @@
 import { binaryArtifact, invocation, type AnyBinaryArtifactRequest, type AnyResult, type Result, type HandlerInput, type HelpSection, type KernelCode, runner } from "cli-for-agents";
 import { createCli, runCli, nodeHost, helpNode, commandReference, validateReferences, writeCommandReference, type Host, type ContextProvider, type GuidanceProvider, type ReferenceHost, type HelpNode, type ResolvedRunRequest } from "cli-for-agents/runtime";
 import { execute, type PostOperationHook, type CompletedExecution } from "../src/internal/execution.js";
-import { resolveArtifactPolicy } from "../src/internal/artifacts.js";
+import { captureArtifactPolicy } from "../src/internal/artifacts.js";
 import type { ParsedInvocation } from "../src/internal/registry.js";
 import { family, readSpec, read } from "./runner-positive.js";
 declare function accepts<T>(value: T): void;
@@ -38,10 +38,11 @@ const guidance: GuidanceProvider<Contexts> = async input => {
   throw new Error("Compile-only provider");
 };
 void guidance;
-const hook: PostOperationHook<Contexts> = async ({ requires, app, host, outcome }) => {
+const hook: PostOperationHook<Contexts> = async ({ requires, app, outcome }) => {
   if (requires === "remote") accepts<string>(app.endpoint);
   accepts<AnyResult>(outcome.result);
-  return { artifacts: await resolveArtifactPolicy({ directory: "/configured", forbiddenRoots: [] }, host), issues: [] };
+  // The hook captures an app-free policy; delivery prepares its directory later.
+  return { artifacts: captureArtifactPolicy({ directory: "/configured", forbiddenRoots: [] }), issues: [] };
 };
 declare const parsed: ParsedInvocation<Contexts, KernelCode>;
 declare const resolved: ResolvedRunRequest;
@@ -60,9 +61,9 @@ declare const arbitrated: ArbitratedGuidance;
 const assembled = assembleResponse(execution, { guidance: arbitrated, doctor: invocation(doctor, {}), executable: "example", secondary: [] });
 accepts<Promise<AssembledResponse>>(assembled);
 accepts<Promise<RunResult>>(assembled.then(response => deliver(response, { format: "json", budget: validateOutputBudget(), host, signal })));
-// A policy failure must not erase an earlier valid required candidate batch.
+// A deferred policy failure must not erase an earlier valid required candidate batch.
 declare const batch: EvaluatedGuidance;
-accepts<PostOperationFacts>({ guidance: batch, issues: [{ code: "KERNEL_OUTPUT", message: "Policy resolution failed" }] });
+accepts<PostOperationFacts>({ guidance: batch, issues: [], artifacts: { ok: false, failure: { code: "KERNEL_OUTPUT", message: "Artifact policy could not be collected." } } });
 accepts<CompletedExecution>({ execution, secondary: [], postOperation: "failed", facts: { guidance: batch, issues: [] } });
 declare const instructionValue: Instruction;
 declare const provenance: GuidanceProvenance;

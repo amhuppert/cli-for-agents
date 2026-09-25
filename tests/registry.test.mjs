@@ -260,8 +260,33 @@ test("offline routes and unknown paths resolve without lazy acquisition", () => 
   for (const [tokens, route, path] of [
     [[], "help", ""], [["--help"], "help", ""], [["items", "--help", "--json"], "help", "items"],
     [["items", "list", "--help"], "help", "items list"], [["--version"], "version", ""], [["version"], "version", ""], [["exit-codes"], "exit-codes", ""],
-  ]) assert.deepEqual(x.parse(tokens), { kind: "offline", route, path, json: tokens.includes("--json") });
+  ]) assert.deepEqual(x.parse(tokens), { kind: "offline", route, path, json: tokens.includes("--json"), explicitJson: tokens.includes("--json") ? true : undefined });
   for (const tokens of [["items"], ["items", "missing"], ["missing", "--help"], ["items", "missing", "--version"], ["items", "list", "--bogus", "--help"]]) assert.equal(x.parse(tokens).kind, "invalid");
+});
+
+test("explicit format metadata describes exactly one valid format flag in every resolution", () => {
+  const x = parseFixture({ args: [arg("term", { kind: "string" }, { required: false })] });
+  for (const [tokens, kind, explicitJson, json] of [
+    [["items", "list"], "leaf", undefined, false],
+    [["items", "list", "--json"], "leaf", true, true],
+    [["--json=true", "items", "list"], "leaf", true, true],
+    [["items", "list", "--json=false"], "leaf", false, false],
+    [["items", "list", "--", "--json"], "leaf", undefined, false],
+    [["items", "list", "--json=false", "--", "--json"], "leaf", false, false],
+    [["items", "--help", "--json=false"], "offline", false, false],
+    [["--version", "--json"], "offline", true, true],
+    [["items", "list", "--bogus", "--json"], "invalid", true, true],
+    [["--bogus", "items", "list", "--json=false"], "invalid", false, false],
+    [["items", "list", "--json", "--json"], "invalid", undefined, true],
+    [["items", "list", "--json=false", "--json=true"], "invalid", undefined, false],
+    [["items", "list", "--json=maybe"], "invalid", undefined, false],
+  ]) {
+    const resolved = x.parse(tokens);
+    assert.equal(resolved.kind, kind, JSON.stringify(tokens));
+    assert.equal(Object.hasOwn(resolved, "explicitJson"), true, JSON.stringify(tokens));
+    assert.equal(resolved.explicitJson, explicitJson, JSON.stringify(tokens));
+    assert.equal(kind === "leaf" ? resolved.invocation.json : resolved.json, json, JSON.stringify(tokens));
+  }
 });
 
 test("parsed invocations carry immutable input", () => {

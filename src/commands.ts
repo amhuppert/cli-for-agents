@@ -5,7 +5,7 @@ import { makePayloadModule, makeRenderedRunner } from "./internal/runner-modules
 import { makeInvocation } from "./internal/invocations.js";
 import type { AnyCommitReport, AnyResult, Effect, Preparation, Prepared, ErrorDefinitions, ErrorCatalog, FamilyCode, Result, CommitReport } from "./results.js";
 import type { Host, Environment, InputFileSource } from "./runtime/index.js";
-import type { JsonData, NonEmpty } from "./values.js";
+import type { JsonData, JsonValue, NonEmpty } from "./values.js";
 
 export type SkillReference = { readonly path: string; readonly readWhen: string };
 export type HelpSection =
@@ -109,10 +109,11 @@ export function payloadRead<S extends CommandSpec & { readonly effects: "read"; 
   _handler: PayloadReadHandler<S, App, P, D, G>,
 ): PayloadReadModule<S, App, D, G> { return makePayloadModule(_handler, "read") as PayloadReadModule<S, App, D, G>; }
 
-/** prepare and commit share one lazy decoder; the generated twin calls prepare only. */
-export type MutationHandler<S extends CommandSpec, App, PreparationData, D extends ErrorDefinitions = ErrorDefinitions, G extends Readonly<Record<string, Flag>> = {}, P = unknown> = {
+/** prepare and commit share one lazy decoder; the generated twin calls prepare only and
+ * returns its optional JSON preview. Commit receives only the opaque value and hash. */
+export type MutationHandler<S extends CommandSpec, App, PreparationData, D extends ErrorDefinitions = ErrorDefinitions, G extends Readonly<Record<string, Flag>> = {}, P = unknown, Preview = JsonValue> = {
   readonly decode: StandardSchema<P>;
-  readonly prepare: (input: PayloadHandlerInput<S, App, P, D, G>) => Promise<Preparation<PreparationData, FamilyCode<D>>>;
+  readonly prepare: (input: PayloadHandlerInput<S, App, P, D, G>) => Promise<Preparation<PreparationData, FamilyCode<D>, Preview>>;
   readonly commit: (input: PayloadHandlerInput<S, App, P, D, G> & {
     readonly prepared: Prepared<S["path"], PreparationData>;
   }) => Promise<AnyCommitReport<FamilyCode<D>>>;
@@ -126,8 +127,8 @@ export type MutationModule<S extends CommandSpec, App, D extends ErrorDefinition
   readonly codes: FamilyCode<D>;
   readonly input: (input: HandlerInput<S, App, D, G>) => void;
 }>;
-export function mutation<S extends CommandSpec & { readonly effects: "write"; readonly payload: MutationPayloadDeclaration }, App, Data, D extends ErrorDefinitions = ErrorDefinitions, G extends Readonly<Record<string, Flag>> = {}, P = unknown>(
-  _handler: MutationHandler<S, App, Data, D, G, P>,
+export function mutation<S extends CommandSpec & { readonly effects: "write"; readonly payload: MutationPayloadDeclaration }, App, Data, D extends ErrorDefinitions = ErrorDefinitions, G extends Readonly<Record<string, Flag>> = {}, P = unknown, Preview = JsonValue>(
+  _handler: MutationHandler<S, App, Data, D, G, P, Preview>,
 ): MutationModule<S, App, D, G> { return makePayloadModule(_handler, "write") as MutationModule<S, App, D, G>; }
 export type HandlerModule<S extends CommandSpec, App, D extends ErrorDefinitions = ErrorDefinitions, G extends Readonly<Record<string, Flag>> = {}> = {
   readonly default: S extends { readonly payload: PayloadDeclaration }

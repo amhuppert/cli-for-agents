@@ -7,12 +7,15 @@ esbuild, then starts an ephemeral loopback HTTP service owned by each test.
 
 Use `REMOTE_TOKEN` (or `--token`), `--server <url>`, and `--workspace <name>` for remote
 commands. `doctor`, `schema`, help, version, and exit-codes need no live service.
-`REMOTE_ARTIFACTS` explicitly selects the artifact directory (default current directory).
+`REMOTE_ARTIFACTS` explicitly selects the artifact directory (default current
+directory); the kernel creates it the first time a response needs an artifact.
 
 - `list [--cursor <cursor>]` returns one item and an unknown-total page disclosure.
 - `show <id> [--full]` reads summary/detail; large detail spills through the library.
 - `validate --file <path>` and `apply --file <path>` share a lazy Standard Schema
-  decoder and pure preparation. Only apply sends the mutation request.
+  decoder and pure preparation. Only apply sends the mutation request. A successful
+  `validate` hints the matching `apply` with the same server, workspace and file; the
+  token stays in `REMOTE_TOKEN`, and an inline `--token` suppresses that hint.
 - `wait [--cursor <cursor>] [--delay <ms>]` makes a finite request, sleeps through
   the injected host clock, then reads status. `status --cursor <cursor>` resumes. Emitted references retain the selected server
   and workspace; credentials remain in the declared environment fallback.

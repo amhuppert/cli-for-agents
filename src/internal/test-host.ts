@@ -2,12 +2,13 @@ import type { Brand } from "./brand.js";
 import type { HostCall, TestHost } from "../testing/index.js";
 import { checkDuration, checkLimit, collisionError, hashBytes, overflow, sameBytes } from "./host.js";
 
-function fileError(code: "ENOENT" | "ENOTDIR" | "EISDIR"): Error {
+function fileError(code: "ENOENT" | "ENOTDIR" | "EISDIR" | "EEXIST"): Error {
   return Object.assign(new Error(code), { code });
 }
 
 export function makeTestHost(options: {
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
+  readonly directories?: readonly string[];
   readonly stdin?: string;
   readonly now?: number;
 } = {}): TestHost {
@@ -41,13 +42,20 @@ export function makeTestHost(options: {
     if (!(data instanceof Uint8Array)) throw new TypeError("Expected file bytes or text");
     return new Uint8Array(data);
   }
+  // Parents are added without checking files, so callers first rule out file ancestors.
+  function addDirectory(path: string): void {
+    for (let current = path; !directories.has(current); current = parent(current)) directories.add(current);
+  }
+  const seeded = options.directories ?? [];
+  if (!Array.isArray(seeded)) throw new TypeError("Expected directory fixture paths");
+  // Directories precede files, so a file fixture cannot hide a directory collision.
+  for (const input of seeded) addDirectory(canonical(input).replace(/(?<=.)\/$/, ""));
   for (const [input, value] of Object.entries(options.files ?? {})) {
     const path = canonical(input);
     if (path.endsWith("/")) throw fileError("EISDIR");
     if (directories.has(path) || files.has(path)) throw collisionError();
     files.set(path, encoded(value));
-    let ancestor = parent(path);
-    while (!directories.has(ancestor)) { directories.add(ancestor); ancestor = parent(ancestor); }
+    addDirectory(parent(path));
   }
   function bounded(data: Uint8Array, limit: number): Uint8Array {
     if (data.length > limit) throw overflow();
@@ -94,6 +102,15 @@ export function makeTestHost(options: {
         const existing = files.get(path);
         if (existing && !sameBytes(existing, snapshot)) throw collisionError();
         if (!existing) files.set(path, snapshot);
+      },
+      async ensureDirectory(input: string, signal: AbortSignal) {
+        record({ kind: "ensureDirectory", path: input });
+        signal.throwIfAborted();
+        // Canonicalization refuses a file ancestor with ENOTDIR before any creation.
+        const path = canonical(input).replace(/(?<=.)\/$/, "");
+        if (files.has(path)) throw fileError("EEXIST");
+        addDirectory(path);
+        signal.throwIfAborted();
       },
     },
     now() { record({ kind: "clock" }); return now; },

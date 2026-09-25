@@ -16,9 +16,9 @@ the product, not overhead.
 | Trust | Callers are trusted: they are the author's own TypeScript, compiled against these types, in the same process. Argv, environment, stdin, payload files and any bytes read from disk are hostile and are parsed strictly. |
 | Concurrency | Several invocations of the same built CLI may overlap — parallel agents, parallel git worktrees (assumed). They are the same user's processes, not adversaries. |
 | Topology | One process plus child processes, on the author's machine (macOS; Linux in CI). A built CLI may call a remote service, but that transport is application-owned and opaque to the kernel. |
-| Lifetime | Seconds per invocation; nothing in the kernel is long-running. Durable state belongs to the application. Artifacts the kernel writes are regenerable output, not a system of record. |
+| Lifetime | Seconds per invocation; nothing in the kernel is long-running. Durable state belongs to the application. Artifacts the kernel writes are regenerable output, not a system of record; the kernel creates the configured artifact directory on demand, when a response needs one. |
 | Failure cost | A rerun, plus the author's time and the author's own data — no other person's data, no money (assumed). The exception is a built CLI that mutates remote state, where a write can end in a genuinely unknown outcome; that is what the applied/not_applied/unknown effect model is for. |
-| Compatibility | Nothing outside this repository imports the library. The author's own projects are updated in the same change as a breaking one. On-disk formats the kernel owns — artifacts, retention sidecars, generated reference blocks — are read only by this code. |
+| Compatibility | Two of the author's own projects outside this repository — book-ingest and Command Center — import the library through private local snapshots (yalc). They are owner-controlled: the author migrates them in the rollout that follows a breaking change, with no compatibility promise. On-disk formats the kernel owns — artifacts and generated reference blocks — are read only by this code. |
 | Scale | One person's data. Responses are bounded at 32,768 serialized UTF-8 bytes by default; anything larger spills to an artifact or pages with a read continuation. |
 
 ## Outside the envelope
@@ -43,5 +43,6 @@ the product, not overhead.
   real and stay in the matrix. Drop any other runtime rather than carry an untested one.
 - **Consumers without `@types/node`.** Every consumer compiles with Node's ambient
   types; the kernel needs no hand-written declarations of Node builtins.
-- **Sweeping the artifact directory.** The kernel never lists, ages out or deletes
-  artifacts and keeps no sidecar metadata beside them; cleanup belongs to the author.
+- **Sweeping the artifact directory.** The kernel creates the directory when it needs
+  one, but never lists, ages out or deletes artifacts and keeps no sidecar metadata
+  beside them; cleanup belongs to the author.

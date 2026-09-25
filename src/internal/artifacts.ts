@@ -1,5 +1,5 @@
 import { recordTestDelivery } from "./test-observation.js";
-import type { ArtifactPolicy, ResolvedArtifactPolicy, ArtifactManifest, AnyBinaryArtifactRequest } from "../disclosure.js";
+import type { AnyPayload, ArtifactPolicy, ResolvedArtifactPolicy, ArtifactManifest, AnyBinaryArtifactRequest } from "../disclosure.js";
 import type { Host, RunResult } from "../runtime/index.js";
 import type { AssembledResponse } from "./response.js";
 import { renderResponse } from "./response.js";
@@ -10,24 +10,80 @@ import { decodeWireEnvelope, kernelError, protocolLimits } from "../results.js";
 import { assertArtifactBasename, binaryBytes } from "./binary.js";
 import { ArtifactCollisionError, hasCode } from "./host.js";
 import { assertArtifactMetadata, assertFields, boundedSummary, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
-/** Resolves canonical roots, validates policy and freezes an app-free snapshot. */
-export async function resolveArtifactPolicy(policy: ArtifactPolicy, host: Host): Promise<ResolvedArtifactPolicy> {
-  const snapshot = frozenJson(policy);
-  assertRecord(snapshot);
-  assertFields(snapshot, ["directory", "forbiddenRoots"]);
-  assertText(snapshot.directory);
-  if (!Array.isArray(snapshot.forbiddenRoots)) throw new TypeError("Expected forbidden roots.");
-  for (const root of snapshot.forbiddenRoots) assertText(root);
-  const directory = await host.files.canonicalPath(snapshot.directory);
-  const forbiddenRoots = await Promise.all(snapshot.forbiddenRoots.map(root => host.files.canonicalPath(root)));
-  if (await host.files.kind(directory) !== "directory") throw new TypeError("Artifact directory must exist.");
-  if (forbiddenRoots.some(root => within(directory, root))) throw new TypeError("Artifact directory is forbidden.");
-  // Only canonical, validated, detached host data receives the resolved brand.
-  const resolved: ArtifactPolicy = { directory, forbiddenRoots };
-  return frozenJson(resolved) as ResolvedArtifactPolicy;
+/** Framework-owned policy failure; resolver and host exception text never reaches output. */
+export class ArtifactPolicyError extends TypeError {
+  constructor(readonly failure: SecondaryFailure) { super(failure.message); }
+}
+/** Detached app-free policy, or its deferred failure, captured before release.
+ * Filesystem work waits until delivery actually needs an artifact. */
+export type CapturedArtifactPolicy =
+  | { readonly ok: true; readonly policy: ArtifactPolicy; readonly failure?: never }
+  | { readonly ok: false; readonly failure: SecondaryFailure; readonly policy?: never };
+export function captureArtifactPolicy(value: unknown): CapturedArtifactPolicy {
+  try {
+    const snapshot = frozenJson(value);
+    assertRecord(snapshot);
+    assertFields(snapshot, ["directory", "forbiddenRoots"]);
+    assertText(snapshot["directory"]);
+    const roots = snapshot["forbiddenRoots"];
+    if (!Array.isArray(roots)) throw new TypeError("Expected forbidden roots.");
+    for (const root of roots) assertText(root);
+    return Object.freeze({ ok: true, policy: snapshot as ArtifactPolicy });
+  } catch {
+    return Object.freeze({ ok: false, failure: Object.freeze({ code: "KERNEL_OUTPUT" as const,
+      message: "Artifact policy is invalid; expected a directory path and forbidden root paths." }) });
+  }
+}
+function policyError(cause: string, directory: string): ArtifactPolicyError {
+  return new ArtifactPolicyError({ code: "KERNEL_OUTPUT", message: boundedSummary(path => `Artifact directory ${JSON.stringify(path(directory))} ${cause}`,
+    `Artifact directory ${cause} Its path exceeds the diagnostic limit.`, protocolLimits.diagnosticSummary) });
+}
+function hostCause(error: unknown): string {
+  if (hasCode(error, "ENOTDIR")) return "has an ancestor that is not a directory.";
+  if (hasCode(error, "EEXIST")) return "is a file, not a directory.";
+  if (hasCode(error, "EACCES") || hasCode(error, "EPERM")) return "could not be accessed; the OS denied permission.";
+  if (hasCode(error, "ENOSPC")) return "could not be created; the filesystem has no space.";
+  return "could not be created or inspected; check permissions and available space.";
+}
+/** Canonical spellings of missing directories keep a trailing separator. */
+function trimmed(path: string): string { return path.replace(/\/+$/, "") || "/"; }
+/** Delivery-time preparation of a captured policy: canonicalize, refuse forbidden
+ * containment before creating anything, then ensure only the configured root. */
+export async function resolveArtifactPolicy(policy: ArtifactPolicy, host: Host, signal: AbortSignal): Promise<ResolvedArtifactPolicy> {
+  const captured = captureArtifactPolicy(policy);
+  if (!captured.ok) throw new ArtifactPolicyError(captured.failure);
+  const configured = captured.policy.directory;
+  const step = async <T>(work: () => Promise<T>, cause: (error: unknown) => string): Promise<T> => {
+    signal.throwIfAborted();
+    try { return await work(); }
+    catch (error) {
+      if (signal.aborted) throw error;
+      throw policyError(cause(error), configured);
+    }
+  };
+  try {
+    const directory = trimmed(await step(() => host.files.canonicalPath(configured),
+      error => hasCode(error, "ENOTDIR") ? hostCause(error) : "could not be resolved; check its path and symlinks."));
+    const forbiddenRoots = (await step(() => Promise.all(captured.policy.forbiddenRoots.map(root => host.files.canonicalPath(root))),
+      () => "could not be checked; a forbidden root could not be resolved.")).map(trimmed);
+    if (forbiddenRoots.some(root => within(directory, root))) throw policyError("is inside a forbidden root.", configured);
+    let kind = await step(() => host.files.kind(directory), hostCause);
+    if (kind === "file") throw policyError("is a file, not a directory.", configured);
+    if (kind === "missing") {
+      await step(() => host.files.ensureDirectory(directory, signal), hostCause);
+      kind = await step(() => host.files.kind(directory), hostCause);
+    }
+    if (kind !== "directory") throw policyError(hostCause(undefined), configured);
+    // Only canonical, validated, detached host data receives the resolved brand.
+    const resolved: ArtifactPolicy = { directory, forbiddenRoots };
+    return frozenJson(resolved) as ResolvedArtifactPolicy;
+  } catch (error) {
+    if (error instanceof ArtifactPolicyError || !signal.aborted) throw error;
+    throw new ArtifactPolicyError({ code: "KERNEL_CANCELLED", message: "Artifact directory preparation was cancelled." });
+  }
 }
 function within(destination: string, root: string): boolean {
-  const normalized = root.replace(/\/+$/, "") || "/";
+  const normalized = trimmed(root);
   return destination === normalized || destination.startsWith(normalized === "/" ? "/" : normalized + "/");
 }
 class ArtifactWriteError extends TypeError {}
@@ -115,7 +171,8 @@ export function measureOutput(output: { readonly stdout: string; readonly stderr
 export async function deliver(response: AssembledResponse, options: {
   readonly format: "text" | "json";
   readonly budget: Bytes;
-  readonly artifacts?: ResolvedArtifactPolicy;
+  /** Absent when no app-free policy exists; optional spill then omits detail inline. */
+  readonly artifacts?: CapturedArtifactPolicy;
   readonly host: Host;
   readonly signal: AbortSignal;
   readonly out?: string;
@@ -127,13 +184,16 @@ export async function deliver(response: AssembledResponse, options: {
     return result;
   };
   const inline = renderResponse(response, options.format);
-  if (!response.binary && options.out === undefined && measureOutput(inline) <= budget) return finish(inline, response.envelope);
+  const inlineBytes = measureOutput(inline);
+  if (!response.binary && options.out === undefined && inlineBytes <= budget) return finish(inline, response.envelope);
   let manifest = response.envelope.payload?.kind === "artifact" ? response.envelope.payload.artifact : undefined;
   let failure: SecondaryFailure | undefined;
   if (response.binary || options.out !== undefined || options.artifacts && !manifest) {
     try {
-      if (!options.artifacts) throw new TypeError("Artifact policy is unavailable.");
-      if (response.binary) manifest = await deliverBinary(response.binary, options.artifacts, options.host, options.signal, options.out);
+      if (!options.artifacts) throw new ArtifactPolicyError({ code: "KERNEL_OUTPUT", message: "Artifact policy is unavailable because the command did not reach policy collection." });
+      if (!options.artifacts.ok) throw new ArtifactPolicyError(options.artifacts.failure);
+      const policy = await resolveArtifactPolicy(options.artifacts.policy, options.host, options.signal);
+      if (response.binary) manifest = await deliverBinary(response.binary, policy, options.host, options.signal, options.out);
       else {
         const dataOnly = options.out !== undefined && options.format === "json" && response.envelope.payload?.kind === "inline";
         const content = dataOnly && response.envelope.payload?.kind === "inline" ? response.envelope.payload.data : response.envelope;
@@ -141,10 +201,11 @@ export async function deliver(response: AssembledResponse, options: {
           format: "json", mediaType: "application/json", basename: "response.json",
           ...(options.out !== undefined ? { out: options.out } : {}),
           reason: options.out !== undefined ? "explicit_out" : "stdout_budget_exceeded", contains: dataOnly ? "data" : "response" },
-        options.artifacts, options.host, options.signal);
+        policy, options.host, options.signal);
       }
     } catch (error) {
-      failure = { code: "KERNEL_OUTPUT", message: error instanceof ArtifactWriteError ? error.message : "Artifact delivery failed; optional detail omitted." };
+      failure = error instanceof ArtifactPolicyError ? error.failure
+        : { code: "KERNEL_OUTPUT", message: error instanceof ArtifactWriteError ? error.message : "Artifact delivery failed; optional detail omitted." };
     }
   }
   if (manifest && response.binary && !failure) {
@@ -152,10 +213,12 @@ export async function deliver(response: AssembledResponse, options: {
     const output = renderResponse({ ...response, envelope, primaryText: `${response.primaryText}\nartifact: ${JSON.stringify(manifest)}`.trimStart() }, options.format);
     if (measureOutput(output) <= budget) return finish(output, envelope);
   }
-  let envelope = compactEnvelope(response.envelope, manifest, failure);
+  // An automatic spill is normal delivery: disclose the attempted size, not an issue.
+  const spill = manifest?.reason === "stdout_budget_exceeded" ? { format: options.format, inlineBytes, maxBytes: budget } : undefined;
+  let envelope = compactEnvelope(response.envelope, manifest, failure, spill);
   let output = projectCompact(response, envelope, manifest, options.format, budget);
   if (measureOutput(output) > budget) {
-    envelope = compactEnvelope(response.envelope, manifest, failure, true);
+    envelope = compactEnvelope(response.envelope, manifest, failure, spill, true);
     output = projectCompact(response, envelope, manifest, options.format, budget);
   }
   if (measureOutput(output) > budget && !envelope.ok) {
@@ -169,7 +232,9 @@ export async function deliver(response: AssembledResponse, options: {
 
 function projectCompact(response: AssembledResponse, envelope: AnyEnvelope, manifest: ArtifactManifest | undefined,
   format: "text" | "json", budget: Bytes): ReturnType<typeof renderResponse> {
-  const compact = { ...response, envelope, primaryText: manifest ? `artifact: ${JSON.stringify(manifest)}` : "" };
+  const spill = envelope.payload?.kind === "artifact" ? envelope.payload.spill : undefined;
+  const notice = spill ? `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.\n` : "";
+  const compact = { ...response, envelope, primaryText: manifest ? `${notice}artifact: ${JSON.stringify(manifest)}` : "" };
   let output = renderResponse(compact, format);
   if (format === "text" && measureOutput(output) > budget) output = renderResponse(compact, "text", true);
   // JSON is also a lossless emergency text representation when prose escaping
@@ -187,21 +252,25 @@ function bounded(output: ReturnType<typeof renderResponse>, budget: Bytes): RunR
   return Object.freeze(output) as RunResult;
 }
 
-function compactEnvelope(source: AnyEnvelope, manifest?: ArtifactManifest, failure?: SecondaryFailure, compactSecondary = false): AnyEnvelope {
+type Spill = NonNullable<Extract<AnyPayload, { readonly kind: "artifact" }>["spill"]>;
+function compactEnvelope(source: AnyEnvelope, manifest?: ArtifactManifest, failure?: SecondaryFailure, spill?: Spill, compactSecondary = false): AnyEnvelope {
   const { payload: _payload, hint: _hint, ...protocol } = source;
-  const payload = manifest ? { kind: "artifact", artifact: manifest, summary: { omitted: true } }
+  const payload = manifest ? { kind: "artifact", artifact: manifest, summary: { omitted: true }, ...(spill ? { spill } : {}) }
     : { kind: "inline", data: { omitted: true } };
-  const issues = [{ code: "KERNEL_OUTPUT", message: manifest
-    ? "Optional response detail omitted inline; inspect artifact."
-    : "Optional response detail omitted; no artifact available." }];
-  if (source.ok && !failure) return decodeWireEnvelope({ ...protocol, payload, issues });
-  const primary = source.ok ? kernelError("KERNEL_OUTPUT", { message: "Artifact delivery failed.", why: failure!.message }) : source.error;
-  const { details: _details, issues: _issues, ...error } = primary;
+  // Legitimate issues stay while they fit. A complete response artifact discloses any
+  // it later drops; only detail with no complete artifact needs an omission issue.
+  const complete = manifest?.contains === "response";
+  const unavailable = [{ code: "KERNEL_OUTPUT", message: "Optional response detail omitted; no artifact available." }];
+  const omitted = [{ code: "KERNEL_OUTPUT", message: manifest ? "Optional diagnostics omitted inline." : "Optional detail and repeated secondary diagnostics omitted." }];
+  if (source.ok && !failure) return decodeWireEnvelope({ ...protocol, payload,
+    issues: !manifest ? unavailable : !compactSecondary ? source.issues : complete ? [] : omitted });
+  const primary = source.ok ? kernelError(failure!.code, { message: "Artifact delivery failed.", why: failure!.message }) : source.error;
+  const { details: _details, issues: primaryIssues, ...error } = primary;
   const { issues: _successIssues, ...fields } = protocol as typeof protocol & { readonly issues?: unknown };
   const failures = source.ok ? [] : [...source.error.secondary, ...(failure ? [failure] : [])];
   // Preserve full facts when feasible. For unbounded diagnostic counts/details,
   // keep one structured fact per finite catalog code and disclose omitted detail.
   const secondary = compactSecondary ? [...new Set(failures.map(item => item.code))].map(code => ({ code, message: "Omitted." })) : failures;
-  return decodeWireEnvelope({ ...fields, ok: false, payload,
-    error: { ...error, issues: compactSecondary ? [{ code: "KERNEL_OUTPUT", message: "Optional detail and repeated secondary diagnostics omitted." }] : issues, secondary } });
+  const issues = !compactSecondary ? manifest ? primaryIssues : unavailable : complete ? undefined : omitted;
+  return decodeWireEnvelope({ ...fields, ok: false, payload, error: { ...error, ...(issues ? { issues } : {}), secondary } });
 }

@@ -1,6 +1,6 @@
-import type { Cli, ReferenceHost, ReferenceOptions, ReferenceValidation, ReferenceIssue } from "../runtime/index.js";
+import type { Cli, ReferenceHost, ReferenceOptions, ReferenceValidation, ReferenceIssue, ReferenceWriteResult } from "../runtime/index.js";
 import { bytes } from "../values.js";
-import { renderCommandReference } from "./help.js";
+import { referencePaths, renderCommandReference } from "./help.js";
 import { sameBytes } from "./host.js";
 import { cliConfiguration, cliRegistry, registryState } from "./registry.js";
 
@@ -13,8 +13,15 @@ export async function referenceHost(options: ReferenceOptions): Promise<Referenc
 export async function checkReferences<Contexts>(cli: Cli<Contexts>, options: ReferenceOptions): Promise<ReferenceValidation> {
   options.signal.throwIfAborted();
   const config = cliConfiguration(cli);
-  const refs = Object.values(registryState(cliRegistry(cli)).nodes).filter(node => node.kind !== "validation")
-    .flatMap(node => (node.group ?? node.model?.spec)?.skills?.map(skill => ({ commandPath: node.path, reference: skill.path })) ?? []);
+  const documented = new Set(referencePaths(cli, options));
+  // A twin shares its command's skills; check them once under the command's path.
+  const owners = new Set<string>();
+  const refs = Object.values(registryState(cliRegistry(cli)).nodes).filter(node => documented.has(node.path)).flatMap(node => {
+    const owner = node.kind === "validation" ? node.model!.spec.path : node.path;
+    if (owners.has(owner)) return [];
+    owners.add(owner);
+    return (node.group ?? node.model?.spec)?.skills?.map(skill => ({ commandPath: owner, reference: skill.path })) ?? [];
+  });
   if (!refs.length) return { ok: true, checked: 0, issues: [] };
   const host = await referenceHost(options);
   const path = await import("node:path");
@@ -43,8 +50,9 @@ export async function checkReferences<Contexts>(cli: Cli<Contexts>, options: Ref
   return issues.length ? { ok: false, checked: refs.length, issues: [issues[0]!, ...issues.slice(1)] } : { ok: true, checked: refs.length, issues: [] };
 }
 
-/** Only the selected, unique whole-line marker pair is replaceable. */
-export function replaceMarker(document: string, marker: string, generated: string): string {
+/** Only the selected, unique whole-line marker pair is replaceable. The block is the
+ * inserted text after newline normalization, excluding the marker lines. */
+export function replaceMarker(document: string, marker: string, generated: string): { readonly document: string; readonly block: string } {
   if (!/^[A-Z][A-Z0-9 _-]{0,63}$/.test(marker)) throw new TypeError("Invalid reference marker name.");
   let active: string | undefined;
   const seen = new Set<string>();
@@ -72,28 +80,33 @@ export function replaceMarker(document: string, marker: string, generated: strin
   if (/<!-- (?:BEGIN|END) GENERATED /u.test(existing) || /<!-- (?:BEGIN|END) GENERATED /u.test(generated)) throw new TypeError("Nested reference markers are forbidden.");
   const newline = first[0].endsWith("\r") ? "\r\n" : "\n";
   const content = generated.replace(/\r?\n/g, newline);
-  return document.slice(0, offset + 1) + content + (content.endsWith(newline) ? "" : newline) + document.slice(last.index);
+  const block = content + (content.endsWith(newline) ? "" : newline);
+  return { document: document.slice(0, offset + 1) + block + document.slice(last.index), block };
 }
 
 export async function writeReference<Contexts>(cli: Cli<Contexts>, options: ReferenceOptions & {
   readonly path: string; readonly marker: string; readonly mode: "write" | "check";
-}): Promise<ReferenceValidation & { readonly changed: boolean }> {
+}): Promise<ReferenceWriteResult> {
   if (options.mode !== "write" && options.mode !== "check") throw new TypeError("Invalid reference mode.");
   const limit = bytes(options.maxBytes ?? 1048576);
+  // Pure generation checks the selection before any host acquisition.
+  const generated = renderCommandReference(cli, options);
   const host = await referenceHost(options);
   const validation = await checkReferences(cli, { ...options, host });
   if (!validation.ok) return { ...validation, changed: false };
   options.signal.throwIfAborted();
   const original = await host.files.read(options.path, limit, options.signal);
   const document = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(original);
-  const updated = replaceMarker(document, options.marker, renderCommandReference(cli));
-  const data = new TextEncoder().encode(updated);
-  if (data.byteLength > limit) throw new RangeError("Generated reference exceeds byte limit.");
+  const updated = replaceMarker(document, options.marker, generated);
+  const encoder = new TextEncoder();
+  const data = encoder.encode(updated.document);
+  const sizes = { generatedBytes: bytes(encoder.encode(updated.block).byteLength), documentBytes: bytes(data.byteLength), maxBytes: limit };
+  if (data.byteLength > limit) throw new RangeError(`Generated reference document is ${sizes.documentBytes} bytes, including a ${sizes.generatedBytes}-byte generated block; the limit is ${limit} bytes.`);
   const changed = !sameBytes(original, data);
   options.signal.throwIfAborted();
   if (changed && options.mode === "write") {
     if (!host.files.replace) throw new TypeError("Reference write requires a replacement-capable host.");
     await host.files.replace(options.path, data, options.signal);
   }
-  return { ...validation, changed };
+  return { ...validation, changed, sizes };
 }

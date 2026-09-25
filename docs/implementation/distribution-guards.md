@@ -31,6 +31,42 @@ Run locally through registered validation:
 cctl validate run test --queue-if-busy -- tests/distribution.test.mjs
 ```
 
+## Packed consumers and local publication
+
+`tests/packaging.test.mjs` exercises the real package lifecycle rather than copying
+the worktree's `dist`. Each run copies the producer's `src`, package and lock
+files, TypeScript configs, `scripts/prepack.mjs` and the build wrapper into a
+fresh root under `.cc/temp/packaging/`, links the installed development
+dependencies, and never touches the worktree's own `dist` or the user's global
+yalc store. npm runs with an isolated cache, offline.
+
+- `npm pack --json --pack-destination` runs from a missing `dist` and from a
+  poisoned one that includes an obsolete emitted file. The `prepack` hook deletes
+  `dist` and rebuilds it through `scripts/validate/build.sh`, so the archive holds
+  fresh exports, no obsolete file and nothing outside `dist` but `package.json`.
+- The real archive is extracted into a separately named consumer's
+  `node_modules/cli-for-agents`. A strict NodeNext program with
+  `exactOptionalPropertyTypes`, no `paths`/`baseUrl` alias and explicitly linked
+  Zod, `@standard-schema/spec` and `@types/node` compiles direct Zod and official
+  Standard Schema assignments, previews, the Host capability and reference types;
+  TypeScript must resolve every `cli-for-agents` import inside the archive, and no
+  shipped declaration names a development-only package. A subprocess imports the
+  four public entries and is refused private paths. A packed CLI validates a
+  preview and spills into a missing artifact directory, which the kernel creates.
+- The pinned `node_modules/yalc` executable publishes with
+  `publish --private --scripts --store-folder <fixture-store>`. The stored package
+  is fresh; a consumer adds it, installs offline and sees a source marker; a second
+  publication with a changed marker reaches the consumer through `yalc update`.
+  A compile error with stale `dist` present makes both `npm pack` and
+  `yalc publish` fail, creates no archive, and leaves the earlier stored snapshot
+  and the consumer's installation intact.
+
+yalc 1.0.0-pre.53 runs `prepack` before copying only when scripts are enabled;
+`publish` defaults them on and `push` defaults them off, so the documented
+workflow passes `--scripts` explicitly and avoids bare `push`. TypeScript, esbuild,
+`@types/node`, Zod, `@standard-schema/spec` and yalc are development dependencies;
+the package keeps zero runtime dependencies.
+
 `scripts/distribution/bundle.mjs` is the reusable bundle entry point (requires an
 existing emitted dist). `.github/workflows/distribution.yml` provisions all three
 pinned runtimes before calling `scripts/distribution/ci.sh`, which uses the canonical
@@ -51,9 +87,13 @@ and that fixture handlers reach stdout only through public `main`.
 
 ## Startup and size guards
 
-`scripts/distribution/baseline.json` holds a **size budget of 104,448 bytes**
-(102 KiB) for the single-file bundle, including the lazy inherited contract
-harness, alongside the measured source/offline module allowlist. The budget is not
+`scripts/distribution/baseline.json` holds a **size budget of 110,592 bytes**
+(108 KiB) for the single-file bundle, including the lazy inherited contract
+harness, alongside the measured source/offline module allowlist. It was raised
+from 104,448 bytes when cli-for-agents#3 grew the measured bundle from 102,051 to
+107,149 bytes (+5,098) with on-demand artifact directories, validation previews and
+generated write hints, spill metadata, reference selection and parity diagnostics;
+the eager allowlist did not change. The budget is not
 a ratchet: a change that earns its bytes raises the ceiling in that file, as one
 line visible in the diff. Its job is catching gross regressions, not policing
 every byte — the allowlist is the guard that protects startup, and it admits a new

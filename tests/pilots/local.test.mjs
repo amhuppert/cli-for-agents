@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, before, after } from 'node:test';
-import { mkdtemp, rm, readFile, writeFile, mkdir, symlink, realpath, copyFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, mkdir, symlink, realpath, copyFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -79,6 +79,9 @@ test('payload twin is byte-pure and schema failures precede workspace acquisitio
   const twin = run(root, ['claim', 'validate', '--file', payload, '--json']);
   assert.equal(twin.status, 0, twin.stdout);
   assert.equal(twin.envelope.effect, 'read');
+  assert.deepEqual(data(twin), { valid: true, payloadHash: createHash('sha256').update(await readFile(payload)).digest('hex'),
+    preview: { nodeId: 'n2', nodeTitle: 'Beta', characters: 11, existingClaims: 0 } });
+  assert.ok(twin.envelope.hint.startsWith('Apply the validated payload: workspace claim apply ') && twin.envelope.hint.includes(payload), twin.envelope.hint);
   assert.deepEqual(await readFile(statePath), before);
   const applied = run(root, ['claim', 'apply', '--file', payload, '--json']);
   assert.equal(data(applied).receipt.id, 'r1');
@@ -113,6 +116,7 @@ test('custom primary renderers disclose the same fields and values in text and J
 test('raw file/stdin ingestion and binary export preserve exact finite bytes and hashes', async () => {
   const root = join(scratch, 'binary');
   data(run(root, ['init', '--json']));
+  await assert.rejects(stat(join(root, 'artifacts')), { code: 'ENOENT' }, 'initialization leaves artifact setup to the kernel');
   const raw = Buffer.from('Raw UTF-8 😀\nwith NUL \0 and tabs\tend');
   const file = join(scratch, 'raw.txt');
   await writeFile(file, raw);
@@ -141,6 +145,7 @@ test('runtime artifact policy refuses canonical dataset roots and symlink ancest
   const before = await readFile(join(root, 'data/state.json'));
   const alias = join(root, 'dataset-alias');
   await symlink(join(root, 'data'), alias);
+  await mkdir(join(root, 'artifacts'));
   await symlink(join(root, 'data'), join(root, 'artifacts', 'escape'));
   for (const directory of [join(root, 'data'), alias, join(root, 'artifacts', '..', 'data')]) {
     const refused = run(root, ['export', 'n1', '--json'], { env: { WORKSPACE_ARTIFACTS: directory } });
@@ -172,19 +177,24 @@ test('fresh processes retain applied recovery and required guidance when artifac
   const root = join(scratch, 'live-recovery');
   data(run(root, ['init', '--json']));
   const payload = JSON.stringify({ nodeId: 'n1', text: '😀'.repeat(4000) });
-  const failed = run(root, ['claim', 'apply', '--file', '-', '--json'], { input: payload, env: { WORKSPACE_ARTIFACTS: join(root, 'missing-output') } });
+  // A regular file cannot become the artifact directory; missing directories are created.
+  const unusable = join(root, 'artifact-file');
+  await writeFile(unusable, 'not a directory');
+  const failed = run(root, ['claim', 'apply', '--file', '-', '--json'], { input: payload, env: { WORKSPACE_ARTIFACTS: unusable } });
   assert.equal(failed.status, 1);
   assert.equal(failed.envelope.error.code, 'KERNEL_OUTPUT');
   assert.equal(failed.envelope.effect, 'applied');
   assert.deepEqual(failed.envelope.recovery.references, [{ kind: 'receipt', id: 'r1' }]);
   assert.equal(failed.envelope.instruction, 'Inspect saved state before another mutation.');
+  assert.match(failed.envelope.error.why, /is a file, not a directory/);
   assert.equal(data(run(root, ['answer-check', '--file', '-', '--json'], { input: payload })).matches, true);
   const saved = JSON.parse(await readFile(join(root, 'data/state.json'), 'utf8'));
   assert.equal(saved.receipts.length, 1, 'Recovery inspection must not replay the mutation');
-  const domainFailure = run(root, ['show', 'missing-node', '--json'], { env: { WORKSPACE_ARTIFACTS: join(root, 'missing-output') } });
+  // A small response needs no artifact, so an unusable policy adds no diagnostic.
+  const domainFailure = run(root, ['show', 'missing-node', '--json'], { env: { WORKSPACE_ARTIFACTS: unusable } });
   assert.equal(domainFailure.status, 1);
   assert.equal(domainFailure.envelope.error.code, 'NODE_MISSING');
-  assert.ok(domainFailure.envelope.error.secondary.some(issue => issue.code === 'KERNEL_OUTPUT'));
+  assert.deepEqual(domainFailure.envelope.error.secondary, []);
 });
 
 test('bootstrap needs no app, offline paths need no workspace, and copied bundle is self-contained', async () => {

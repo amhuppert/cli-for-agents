@@ -43,3 +43,12 @@ batch.guidance;
 accepts<HandlerGuidance>(batch);
 // @ts-expect-error The single response arbiter requires observable conflicts.
 arbitrate({ commandPath: "read", handler, evaluated: batch });
+
+import { bytes, type AnyPayload, type ArtifactManifest } from "cli-for-agents";
+declare const manifest: ArtifactManifest;
+// @ts-expect-error Inline payloads have no spill metadata.
+accepts<AnyPayload>({ kind: "inline", data: null, spill: { format: "json", inlineBytes: bytes(1), maxBytes: bytes(1) } });
+// @ts-expect-error Spill format is the attempted text or JSON representation.
+accepts<AnyPayload>({ kind: "artifact", artifact: manifest, summary: null, spill: { format: "binary", inlineBytes: bytes(1), maxBytes: bytes(1) } });
+// @ts-expect-error Spill sizes are branded byte counts.
+accepts<AnyPayload>({ kind: "artifact", artifact: manifest, summary: null, spill: { format: "json", inlineBytes: 40000, maxBytes: 32768 } });

@@ -11,8 +11,10 @@ import type { ExecutionResult, PostOperationFacts } from "./execution.js";
 import { checkEvaluatedGuidance } from "./guidance-rules.js";
 import { frozenJson } from "./validation.js";
 import { renderOffline } from "./help.js";
+import { validationWriteHint } from "./invocations.js";
 import { arbitrate, assembleResponse } from "./response.js";
-import { deliver, resolveArtifactPolicy, validateOutputBudget } from "./artifacts.js";
+import { captureArtifactPolicy, deliver, validateOutputBudget } from "./artifacts.js";
+import type { CapturedArtifactPolicy } from "./artifacts.js";
 
 const diagnostic = (code: KernelCode): Issue => ({ code, message: kernelErrors[code].description });
 
@@ -42,18 +44,25 @@ async function collect<Contexts>(registry: object, input: PostOperationContext<C
       } catch { issues.push(diagnostic("KERNEL_CONTRACT")); }
     }
   }
-  let artifacts;
-  try { artifacts = await resolveArtifactPolicy("resolve" in source ? await source.resolve(input) : source, input.host); }
-  catch { issues.push(diagnostic(input.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_OUTPUT")); }
-  return { issues, ...(guidance ? { guidance } : {}), ...(artifacts ? { artifacts } : {}) };
+  // Capture only: filesystem preparation waits for delivery, after release. A
+  // deferred failure matters only if delivery later needs an artifact.
+  let artifacts: CapturedArtifactPolicy;
+  try { artifacts = captureArtifactPolicy("resolve" in source ? await source.resolve(input) : source); }
+  catch {
+    artifacts = { ok: false, failure: { code: input.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_OUTPUT", message: "Artifact policy could not be collected." } };
+  }
+  return { issues, ...(guidance ? { guidance } : {}), artifacts };
 }
 
-/** The public production caller: owners retain parsing, lifetime, arbitration and bounds. */
-export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRequest): Promise<RunResult> {
+/** The public production caller: owners retain parsing, lifetime, arbitration and bounds.
+ * A selected format changes only the final representation, never parsing or execution. */
+export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRequest,
+  selection: { readonly format?: "text" | "json" } = {}): Promise<RunResult> {
   const options = cliConfiguration(cli);
   const registry = cliRegistry(cli);
   const resolution = resolve(registry, request.argv);
-  const json = resolution.kind === "leaf" ? resolution.invocation.json : resolution.json;
+  const json = selection.format !== undefined ? selection.format === "json"
+    : resolution.kind === "leaf" ? resolution.invocation.json : resolution.json;
   let budget;
   let execution: ExecutionResult;
   let facts: PostOperationFacts | undefined;
@@ -96,10 +105,13 @@ export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRe
     }
   }
   execution = withExecutionResult(execution, result);
+  // A successful check may suggest its write; explicit handler and rule hints win.
+  const fallbackHint = resolution.kind === "leaf" && resolution.invocation.validation && result.ok
+    ? validationWriteHint(registry, resolution.invocation) : undefined;
   recordTestEvent(request.signal, { type: "guidance.arbitrate" });
   const guidance = await arbitrate({ commandPath: resolution.kind === "leaf" ? resolution.invocation.command.spec.path : "",
     handler: result.instruction ? { instruction: result.instruction } : result.hint ? { hint: result.hint } : {},
-    ...(facts?.guidance ? { evaluated: facts.guidance } : {}), conflictSink: async event => {
+    ...(facts?.guidance ? { evaluated: facts.guidance } : {}), ...(fallbackHint ? { fallbackHint } : {}), conflictSink: async event => {
       recordTestEvent(request.signal, event);
       await options.guidance?.conflictSink(event);
     } });
@@ -108,7 +120,11 @@ export async function runProduction<Contexts>(cli: Cli<Contexts>, request: RunRe
       if (!Object.hasOwn(kernelErrors, issue.code)) throw new TypeError("Unknown hook failure code.");
       return { code: issue.code as KernelCode, message: issue.message };
     })] });
+  // Routes that never reached the post-operation hook may use only a static policy;
+  // an application-dependent resolver runs solely while its app is alive.
+  const source = options.output.artifacts;
+  const artifacts = facts?.artifacts ?? ("resolve" in source ? undefined : captureArtifactPolicy(source));
   return deliver(assembled, { format: json ? "json" : "text", budget, host, signal: request.signal,
-    ...(facts?.artifacts ? { artifacts: facts.artifacts } : {}),
+    ...(artifacts ? { artifacts } : {}),
     ...(resolution.kind === "leaf" && resolution.invocation.input.out !== undefined ? { out: resolution.invocation.input.out } : {}) });
 }

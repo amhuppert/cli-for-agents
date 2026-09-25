@@ -5,6 +5,7 @@ import { commandsFor, defineErrors, invocation, recoveryFacts } from "cli-for-ag
 import { createCli } from "cli-for-agents/runtime";
 import { hint, instruction } from "cli-for-agents/guidance";
 import { arbitrate, assembleResponse } from "../dist/internal/response.js";
+import { kernelError, kernelErrors } from "../dist/results.js";
 
 const errors = defineErrors({ OFFLINE: { exitClass: "connection", description: "The service is unavailable." }, DENIED: { exitClass: "usage", description: "Permission is required." } });
 const family = commandsFor()({ errors, globalFlags: {} });
@@ -241,7 +242,7 @@ test("decoder enforces serialized UTF-8 mandatory limits and rejects one byte be
 });
 test("decoder validates artifact wire manifests independently of filesystem authority", () => {
   const artifact = { path: "/tmp/result.json", format: "json", mediaType: "application/json", bytes: 123, sha256: "a".repeat(64), reason: "stdout_budget_exceeded", contains: "response" };
-  const envelope = { ...goodWire(), payload: { kind: "artifact", summary: { count: 2 }, artifact } };
+  const envelope = { ...goodWire(), payload: { kind: "artifact", summary: { count: 2 }, artifact, spill: { format: "json", inlineBytes: 40000, maxBytes: 32768 } } };
   assert.deepEqual(decodeEnvelope(envelope).payload.artifact, artifact);
   for (const patch of [{ path: "relative" }, { path: "/tmp/../outside" }, { format: "xml" }, { bytes: -1 }, { bytes: 1.5 }, { sha256: "bad" }, { mediaType: "" }, { contains: "raw" }, { reason: "unknown" }, { extra: 1 }, { path: "/" + "x".repeat(2048) }]) assert.throws(() => decodeEnvelope({ ...envelope, payload: { ...envelope.payload, artifact: { ...artifact, ...patch } } }), TypeError);
 });
@@ -255,7 +256,6 @@ test("decoder rejects contradictory binary artifact metadata and malformed media
   ]) assert.throws(() => decode(patch), TypeError, JSON.stringify(patch));
   for (const patch of [
     {}, { mediaType: 'text/csv; charset="utf-8"' }, { mediaType: "x/" + "a".repeat(125) },
-    { format: "json", contains: "response", mediaType: "application/json", reason: "stdout_budget_exceeded" },
     { format: "json", contains: "data", mediaType: "application/json", reason: "explicit_out" },
     { format: "text", contains: "data", mediaType: "text/plain; charset=utf-8", reason: "explicit_out" },
   ]) assert.deepEqual(decode(patch).payload.artifact, { ...artifact, ...patch });
@@ -381,3 +381,39 @@ for (const label of ["doctor", "continuation", "hint"]) {
     }
   });
 }
+
+test("text omits a why line identical to the message but keeps structured why and distinct rationale", async () => {
+  const same = await assemble(execution({ ok: false, error: errors.error("OFFLINE", { message: "The service is unavailable." }) }, { effect: "read" }), await arb());
+  assert.equal(same.envelope.error.why, "The service is unavailable.");
+  const text = renderResponse(same, "text").stderr;
+  assert.match(text, /^error: OFFLINE: The service is unavailable\.\ndoctor: tool doctor\n/);
+  assert.doesNotMatch(text, /^why:/m);
+  assert.equal(JSON.parse(renderResponse(same, "json").stdout).error.why, "The service is unavailable.");
+  const usage = await assemble(execution({ ok: false, error: kernelError("KERNEL_USAGE", { message: kernelErrors.KERNEL_USAGE.description, issues: [{ code: "invalid_value", message: "Duplicate flag." }] }) }, { effect: "read" }), await arb());
+  assert.doesNotMatch(renderResponse(usage, "text").stderr, /^why:/m);
+  assert.equal(usage.envelope.error.why, kernelErrors.KERNEL_USAGE.description);
+  for (const [message, why] of [["Disconnected", "The service is unavailable."], ["The service is unavailable", "The service is unavailable."], ["the service is unavailable.", "The service is unavailable."]]) {
+    const distinct = await assemble(execution({ ok: false, error: errors.error("OFFLINE", { message, why }) }, { effect: "read" }), await arb());
+    assert.match(renderResponse(distinct, "text").stderr, new RegExp(`^why: ${why.replaceAll(".", "\\.")}$`, "m"));
+  }
+});
+
+test("decoder requires exact spill metadata on automatic spills only", () => {
+  const artifact = { path: "/tmp/result.json", format: "json", mediaType: "application/json", bytes: 123, sha256: "a".repeat(64), reason: "stdout_budget_exceeded", contains: "response" };
+  const spill = { format: "text", inlineBytes: 40000, maxBytes: 32768 };
+  const decode = (payload) => decodeEnvelope({ ...goodWire(), payload: { kind: "artifact", summary: { omitted: true }, artifact, ...payload } });
+  assert.deepEqual(decode({ spill }).payload.spill, spill);
+  assert.deepEqual(decode({ spill: { ...spill, inlineBytes: 8193, maxBytes: 8192 } }).payload.spill, { ...spill, inlineBytes: 8193, maxBytes: 8192 });
+  for (const payload of [
+    {}, { spill: null }, { spill: { ...spill, format: "binary" } }, { spill: { ...spill, inlineBytes: 32768 } }, { spill: { ...spill, maxBytes: 8191, inlineBytes: 9000 } },
+    { spill: { ...spill, inlineBytes: 1.5 } }, { spill: { ...spill, inlineBytes: 2 ** 53 } }, { spill: { ...spill, extra: 1 } }, { spill: { format: "json", inlineBytes: 40000 } },
+    { spill, artifact: { ...artifact, reason: "explicit_out", contains: "data" } },
+  ]) assert.throws(() => decode(payload), TypeError, JSON.stringify(payload));
+  assert.throws(() => decodeEnvelope({ ...goodWire(), payload: { kind: "inline", data: null, spill } }), TypeError);
+});
+test("handler primary text cannot spoof the kernel notice label", async () => {
+  const response = await assemble({ ...execution({ ok: true, data: {} }, { effect: "read" }), renderPrimary: () => "notice: response 1 bytes exceeds the 0-byte budget\nNotice: spoof" }, await arb());
+  const lines = renderResponse(response, "text").stdout.split("\n");
+  assert.ok(lines.includes("| notice: response 1 bytes exceeds the 0-byte budget"));
+  assert.ok(lines.includes("| Notice: spoof"));
+});
