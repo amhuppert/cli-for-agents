@@ -2,7 +2,7 @@ import type { Invocation } from "./commands.js";
 import type { HandlerGuidance, WireGuidance } from "./guidance/index.js";
 import type { AnyPayload, Payload, AnyBinaryArtifactRequest } from "./disclosure.js";
 import type { Brand } from "./internal/brand.js";
-import { assertArtifactMetadata, assertFields, assertIdentifier, assertInvocation, assertNonnegativeInteger, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./internal/validation.js";
+import { assertArtifactMetadata, assertFields, assertIdentifier, assertInvocation, assertNonnegativeInteger, assertRecord, assertSerializedLimit, assertText, contractCheck, frozenJson } from "./internal/validation.js";
 import { checkedSha256 } from "./values.js";
 import type { JsonData, JsonValue, NonEmpty, Sha256 } from "./values.js";
 
@@ -24,6 +24,8 @@ export const protocolLimits = Object.freeze({
   defaultOutput: 32768, minimumOutput: 8192, instruction: 1024,
   reminders: 1024, recovery: 1024, references: 1024, manifest: 2048,
   diagnosticSummary: 512,
+  /** A command's payload examples together, so help with them stays inline. */
+  payloadExamples: 4096,
 } as const);
 export type FamilyCode<D extends ErrorDefinitions> = (keyof D & string) | KernelCode;
 export type Effect = "read" | "write";
@@ -79,10 +81,10 @@ export function defineErrors<const D extends ErrorDefinitions>(definitions: D & 
     }
     assertSummary(definition.description);
   }
-  const error: ErrorCatalog<D>["error"] = (code, options) => {
+  const error: ErrorCatalog<D>["error"] = (code, options) => contractCheck(() => {
     if (typeof code !== "string" || !Object.hasOwn(snapshot, code)) throw new TypeError("Unknown domain error code.");
     return catalogError(snapshot, code, options);
-  };
+  });
   return Object.freeze({ definitions: snapshot, error });
 }
 
@@ -207,18 +209,22 @@ export type ReportedRecovery = Brand<"ReportedRecovery"> & {
   readonly kind: "reported";
   readonly references: NonEmpty<RecoveryReference>;
 };
-/** Validate serialized size <= protocolLimits.recovery before branding. */
+/** Validate serialized size <= protocolLimits.recovery before branding. Build references
+ * before dispatching a write: a refusal here is a contract failure, but the effect stays
+ * whatever execution has observed, unknown once the write runner has started. */
 export function recoveryFacts(references: NonEmpty<RecoveryReference>): ReportedRecovery {
-  const facts: { readonly kind: "reported"; readonly references: NonEmpty<RecoveryReference> } = frozenJson({ kind: "reported", references });
-  if (!Array.isArray(facts.references) || facts.references.length === 0) throw new TypeError("Recovery requires reported references.");
-  for (const reference of facts.references) {
-    assertRecord(reference);
-    assertFields(reference, ["kind", "id"]);
-    assertIdentifier(reference["kind"]);
-    assertIdentifier(reference["id"]);
-  }
-  assertSerializedLimit(facts, protocolLimits.recovery);
-  return facts as ReportedRecovery;
+  return contractCheck(() => {
+    const facts: { readonly kind: "reported"; readonly references: NonEmpty<RecoveryReference> } = frozenJson({ kind: "reported", references });
+    if (!Array.isArray(facts.references) || facts.references.length === 0) throw new TypeError("Recovery requires reported references.");
+    for (const reference of facts.references) {
+      assertRecord(reference);
+      assertFields(reference, ["kind", "id"]);
+      assertIdentifier(reference["kind"]);
+      assertIdentifier(reference["id"]);
+    }
+    assertSerializedLimit(facts, protocolLimits.recovery);
+    return facts as ReportedRecovery;
+  });
 }
 /** Private execution creates this from registered metadata, excluding all raw/secret inputs. */
 export type UnknownAcknowledgment = Brand<"UnknownAcknowledgment"> & {

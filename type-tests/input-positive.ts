@@ -58,7 +58,7 @@ export function safeCredentialUnions(ambient: SafeFallbackUnion, optional: Optio
   const family = commandsFor<{}>()({ errors: defineErrors({}), globalFlags: { ambient, optional, widenedOptional } });
   const spec = {
     path: "safe apply", requires: "none", effects: "write", summary: "Apply", description: "Apply",
-    args: [], flags: { ambient, optional, widenedOptional }, payload: { maxBytes: bytes(100), validatePath: "safe validate" },
+    args: [], flags: { ambient, optional, widenedOptional }, payload: { maxBytes: bytes(100), validatePath: "safe validate", examples: [{ payload: {}, why: "Example payload" }] },
   } as const;
   const localFamily = commandsFor<{}>()({ errors: defineErrors({}), globalFlags: {} });
   const local = localFamily.defineCommand(spec, {

@@ -1,4 +1,4 @@
-import type { Bytes, Id, NonEmpty } from "./values.js";
+import type { Bytes, Id, JsonValue, NonEmpty } from "./values.js";
 
 /** Inert descriptions. File inputs decode bounded UTF-8 text before the handler. */
 export type ValueKind =
@@ -151,9 +151,15 @@ export type ValidInput<S extends InputSpec, Extra extends string = never> =
   number extends S["args"]["length"] ? never : string extends S["args"][number]["name"] ? never
     : ValidArguments<S["args"]> extends true ? ValidFlags<S["flags"], Extra> : never;
 
+/** Contents of a payload file, shown in help so an agent can copy its shape. */
+export type PayloadExample = { readonly payload: JsonValue; readonly why: string };
 export type PayloadDeclaration = {
   /** The framework derives --file and its stdin support; no inline JSON flag exists. */
   readonly maxBytes: Bytes;
+  /** validateReferences decodes each example with the command's lazy decoder. */
+  readonly examples: NonEmpty<PayloadExample>;
+  /** A read command of this CLI that prints the payload's full schema document. */
+  readonly schema?: import("./commands.js").Invocation<"read">;
 };
 export type MutationPayloadDeclaration = PayloadDeclaration & {
   /** Explicit generated validation route, reserved for payload writes. */

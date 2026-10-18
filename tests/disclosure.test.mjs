@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { commandsFor, count, defineErrors, invocation, page } from "cli-for-agents";
+import { bytes, commandsFor, count, defineErrors, elide, invocation, page } from "cli-for-agents";
 import { createCli, renderInvocation } from "cli-for-agents/runtime";
 
 const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
@@ -92,3 +92,25 @@ for (const [name, source, pattern] of [
 ]) {
   test(`page rejects ${name}`, () => assert.throws(() => page(source), pattern));
 }
+
+test("elide keeps a value that fits and withholds a larger one behind its measured size and read", () => {
+  const record = { id: "r1", notes: ["short"] };
+  const kept = elide(record, { maxBytes: bytes(64), reveal });
+  assert.deepEqual(kept, record);
+  assert.notEqual(kept, record);
+  assert.ok(Object.isFrozen(kept) && Object.isFrozen(kept.notes));
+  const text = "é".repeat(40);
+  assert.deepEqual(elide(text, { maxBytes: bytes(82), reveal }), text);
+  const withheld = elide(text, { maxBytes: bytes(81), reveal });
+  assert.deepEqual(withheld, { elided: true, bytes: 82, reveal });
+  assert.ok(Object.isFrozen(withheld));
+  assert.match(renderInvocation(withheld.reveal, "records"), /--cursor/);
+});
+
+test("elide refuses a write reveal, an invalid limit and non-JSON values", () => {
+  const writeReveal = invocation(write, {});
+  assert.throws(() => elide("x".repeat(10), { maxBytes: bytes(2), reveal: writeReveal }), TypeError);
+  assert.throws(() => elide("x", { maxBytes: -1, reveal }), TypeError);
+  assert.throws(() => elide({ value: undefined }, { maxBytes: bytes(64), reveal }), TypeError);
+  assert.throws(() => elide("x", { maxBytes: bytes(64), reveal, extra: true }), TypeError);
+});

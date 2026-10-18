@@ -1,6 +1,22 @@
 import type { JsonValue } from "../values.js";
 import type { Invocation } from "../commands.js";
 
+/** This library refusing a value from its caller. Execution reports a handler that lets
+ * one escape as a contract defect (KERNEL_CONTRACT), not as an unacknowledged outcome. */
+export class ContractError extends TypeError {
+  override readonly name = "ContractError";
+}
+/** Run a public constructor's checks, rethrowing their TypeError as a ContractError. */
+export function contractCheck<T>(check: () => T): T {
+  try { return check(); }
+  catch (error) { throw error instanceof TypeError && !(error instanceof ContractError) ? new ContractError(error.message) : error; }
+}
+
+/** An Error's class name when it is a plain identifier; callers word the other cases. */
+export function thrownName(value: unknown): string | undefined {
+  return value instanceof Error && /^[A-Za-z_$][\w$]{0,63}$/u.test(value.name) ? value.name : undefined;
+}
+
 /** Shared boundary checks stay free of host capabilities and package dependencies. */
 export function assertNonnegativeInteger(value: unknown): asserts value is number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {

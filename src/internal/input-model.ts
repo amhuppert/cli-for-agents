@@ -4,7 +4,7 @@ import type { HelpFlag } from "../runtime/index.js";
 import { protocolLimits, type Issue } from "../results.js";
 import { bytes, id } from "../values.js";
 import type { Bytes } from "../values.js";
-import { assertFields, assertIdentifier, assertRecord, assertText, frozenJson } from "./validation.js";
+import { assertFields, assertIdentifier, assertInvocation, assertRecord, assertSerializedLimit, assertText, frozenJson } from "./validation.js";
 
 export const frameworkFlags = Object.freeze({ help: "boolean", json: "boolean", version: "boolean", out: "value", file: "value" } as const);
 /** Retains input identity across the synchronous parser's refusal boundary. */
@@ -15,8 +15,11 @@ export class InputValidationError extends TypeError {
     this.issue = Object.freeze({ code: "invalid_value", message: this.message, path: Object.freeze([...path]) });
   }
 }
+export function isName(token: string): boolean {
+  return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(token);
+}
 export function checkName(name: string): void {
-  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) throw new TypeError("Invalid name spelling.");
+  if (!isName(name)) throw new TypeError("Invalid name spelling.");
 }
 export function checkPath(path: string): void {
   assertText(path);
@@ -182,8 +185,20 @@ export function inputModel(spec: CommandSpec, globals: Readonly<Record<string, F
     }
   }
   if (spec.payload !== undefined) {
-    assertRecord(spec.payload); assertFields(spec.payload, spec.effects === "write" ? ["maxBytes", "validatePath"] : ["maxBytes"]);
+    assertRecord(spec.payload); assertFields(spec.payload, spec.effects === "write" ? ["maxBytes", "validatePath", "examples"] : ["maxBytes", "examples"], ["schema"]);
     bytes(spec.payload.maxBytes);
+    if (!Array.isArray(spec.payload.examples) || !spec.payload.examples.length) throw new TypeError("Payloads require examples.");
+    for (const example of spec.payload.examples) {
+      assertRecord(example); assertFields(example, ["payload", "why"]); assertText(example["why"]);
+      // An example the command would refuse as too large documents nothing.
+      if (new TextEncoder().encode(JSON.stringify(example["payload"])).byteLength > spec.payload.maxBytes) throw new TypeError("Payload example exceeds the payload byte limit.");
+    }
+    try { assertSerializedLimit(spec.payload.examples, protocolLimits.payloadExamples); }
+    catch { throw new TypeError(`Payload examples exceed ${protocolLimits.payloadExamples} serialized bytes together.`); }
+    // Membership and parsing are checked once the whole CLI is registered.
+    if (spec.payload.schema !== undefined) {
+      try { assertInvocation(spec.payload.schema, "read"); } catch { throw new TypeError("Payload schema must be a read invocation."); }
+    }
     if (spec.effects === "write") checkPath(spec.payload.validatePath);
     add("file", { description: "Read structured payload from a file or stdin (-).", value: { kind: "file", maxBytes: spec.payload.maxBytes }, required: true }, "payload");
   }

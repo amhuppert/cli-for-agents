@@ -47,7 +47,7 @@ export function createContractFixtures<Contexts>(consumer: Cli<Contexts>): Contr
     async "schema-issue-survival"() {
       const family = commandsFor<{ network: {} }>()({ errors: defineErrors({}), globalFlags: {} });
       const doctor = family.defineCommand({ ...base, path: "doctor" }, { examples: [{ why: "Diagnose" }], handler: async () => ({ default: { run: async () => ({ ok: true, data: {} }) } }) });
-      const command = family.defineCommand({ ...base, requires: "network", payload: { maxBytes: bytes(256) } }, {
+      const command = family.defineCommand({ ...base, requires: "network", payload: { maxBytes: bytes(256), examples: [{ payload: { name: "item" }, why: "Check one named item" }] } }, {
         examples: [{ why: "Check schema", file: "/input.json" }], handler: async () => ({ default: payloadRead({
           decode: { "~standard": { version: 1, vendor: "contract-fixture", validate: () => ({ issues: [{ message: "Name is required", path: ["records", 0, "name"] }] }) } },
           run: async () => ({ ok: true, data: {} }),

@@ -1,6 +1,6 @@
 # Canonical API and runtime ownership inventory
 
-Ownership map for the 39 functions and two constant objects across the four package
+Ownership map for the 40 functions and two constant objects across the four package
 surfaces. All listed functions have implemented owners; no public path reaches the
 unused private scaffold helper. No deep import below the four package export paths is
 a supported consumer API. Source signatures are canonical, not copies in this
@@ -16,7 +16,7 @@ document; reconcile this map against `src` when a public signature changes.
 | root | id | kernel-values | Validated domain-branded identifier; parser/consumers |
 | root | defineErrors | kernel-values | Finite catalog, reserved codes, default rationale; command families |
 | root | kernelErrors | kernel-values | Sole finite kernel code/class/rationale inventory; every runtime owner |
-| root | protocolLimits | kernel-values | Canonical UTF-8 serialized field/output limits; ingress and delivery |
+| root | protocolLimits | kernel-values | Canonical UTF-8 serialized field/output limits, including a command's payload examples together; ingress and delivery |
 | root | recoveryFacts | kernel-values | Bounded app-reported IDs; write handlers/execution |
 | root | commandsFor | registry-parser | Binds context map/catalog/globals; consumers |
 | root | defineGroup | registry-parser | Static group/help declaration; consumers |
@@ -28,6 +28,7 @@ document; reconcile this map against `src` when a public signature changes.
 | root | runner | execution-lifecycle | Retains checked Data/text pairing privately; response consumes renderer |
 | root | writeRunner | execution-lifecycle | Commit-result Data/text pairing; response consumes renderer |
 | root | page | page-disclosure | Already-paged source and typed read continuation; handlers |
+| root | elide | page-disclosure | One value kept, or withheld behind its measured serialized size and a typed read that returns it; handlers |
 | root | binaryArtifact | artifact-delivery | Finite bytes/media type/basename/JSON summary request; handlers |
 | runtime | createCli | runtime-composition | Synchronous graph/shape construction via registry; consumers |
 | runtime | runCli | runtime-composition | Resolve/execute/hook/finalize/arbitrate/assemble/deliver; process adapter/testkit |
@@ -35,7 +36,7 @@ document; reconcile this map against `src` when a public signature changes.
 | runtime | main | process-adapter | Drain streams, EPIPE, exit, optional compile cache; executables |
 | runtime | helpNode | help-reference | Structured static registry projection; runtime offline route |
 | runtime | commandReference | help-reference | Offline marker-block content for the whole CLI or a `{ commands }` selection with twins/ancestors; reference tooling |
-| runtime | validateReferences | help-reference | Async file existence/canonical containment for selected nodes' skills via lazy/injected host; build/check tooling |
+| runtime | validateReferences | help-reference | Async file existence/canonical containment for selected nodes' skills via lazy/injected host, and decoding of selected payload commands' examples through their lazy decoders (loads those handler modules; runs no runner, acquires no context); build/check tooling |
 | runtime | writeCommandReference | help-reference | Validates references then write/check named block, reporting UTF-8 block/document sizes; consumer tooling |
 | runtime | decodeEnvelope | response-assembly | Validates untrusted envelope and bounded protocol; testkit/transport consumers |
 | runtime | renderInvocation | registry-parser | Safe token rendering; response/help |
@@ -62,11 +63,11 @@ policy resolver or artifact writer exists.
 | Source / exported type family | Canonical types | Owning runtime context |
 | --- | --- | --- |
 | values | ArtifactPath, Bytes, Count, Id, JsonData, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe | kernel-values |
-| input | Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, ValueKind | registry-parser (declarations/parsing); execution-lifecycle (lazy schema) |
+| input | Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, PayloadExample, MutationPayloadDeclaration, StandardSchema, ValueKind | registry-parser (declarations/parsing); execution-lifecycle (lazy schema) |
 | commands | Command, CommandBuilder, CommandFamily, CommandExample, CommandSpec, DisclosureLevel, Flow, Group, HelpSection, Invocation, RelatedCommand, SkillReference | registry-parser; help-reference consumes the same metadata |
 | runners | HandlerContext, HandlerInput, HandlerModule, MutationHandler, MutationModule, ReadHandler, WriteHandler, PayloadHandlerInput, PayloadReadHandler, PayloadReadModule | execution-lifecycle |
 | results | AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess, CliError, CommitReport, Effect, Envelope, ErrorCatalog, ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure, Preparation, Prepared, Result, Success | kernel-values owns constructors/catalog/recovery; execution-lifecycle owns preparation/provenance; response-assembly owns envelopes/classification |
-| disclosure | AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, ResolvedArtifactPolicy, Omission, Page, Payload, Total | page-disclosure (page/omission); artifact-delivery (policy/request/manifest); response-assembly (payload) |
+| disclosure | AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, Elision, ResolvedArtifactPolicy, Omission, Page, Payload, Total | page-disclosure (page/omission/elision); artifact-delivery (policy/request/manifest); response-assembly (payload) |
 | runtime host/context | Environment, Host, ContextProvider, ContextProviders, SelectedContext, InputFileSource, PostOperationContext, GuidanceProvider, ArtifactPolicySource, CliOptions, Cli, RunRequest, ResolvedRunRequest, RenderedText, RunResult | node-host (capabilities); execution-lifecycle (acquisition/lifetime and immutable nonsecret file origins); runtime-composition (wiring); artifact-delivery (bounded RenderedText/RunResult) |
 | runtime help/reference | HelpContextProvider, HelpContext, DocumentationRoot, HelpFlag, HelpArgument, HelpNode, ReferenceIssue, ReferenceValidation, ReferenceHost, ReferenceOptions, ReferenceSelection, ReferenceWriteResult | help-reference |
 | guidance | Hint, Instruction, RuleId, Reminder, ReminderList, HandlerGuidance, FinalGuidance, WireGuidance, ReminderRuleDefinition, ReminderRule, SteeringDefinition, SteeringRule, GuidanceRule, ConflictingInstruction, GuidanceConflict, GuidanceEvent, GuidanceEventSink, RuleRegistration, RuleFiring, ConflictEvent, FiringSink, ConflictSink, GuidanceProvenance, GuidanceCandidate, EvaluatedGuidance, GuidanceEvaluation | guidance-candidates owns rules/evaluation; response-assembly owns final selection; kernel-values owns bounded hint/instruction constructors |
@@ -92,6 +93,8 @@ readonly JSON projection passed to `runner` and `writeRunner` text callbacks.
 | internal/execution: ExecutionResult / OperationOutcome | execution-lifecycle | post-operation hook, response-assembly | Application effects checked; private provenance separate from reports |
 | internal/execution: ExecutionResult.renderPrimary() → string | execution-lifecycle | response-assembly | Exact runner/level renderer closed over validated DTO or binary summary only; invoked after release and bounded by delivery |
 | internal/execution: unknownAcknowledgment | execution-lifecycle | execution failure handling | Registered path + optional payload hash only; no invented IDs or input secrets |
+| internal/validation: contractCheck / ContractError | kernel-values (public constructors a handler calls) | execution-lifecycle | A constructor's TypeError becomes a ContractError (still a TypeError, same message); execution classifies an escaped one as KERNEL_CONTRACT without changing the observed effect |
+| internal/runner-modules: defaultExport, payloadModule, schemaResult | execution-lifecycle | local input and reference validation | One lazy-module and Standard Schema result interpretation for execution and example checks; issues bounded by the error catalog |
 | internal/execution: PostOperationHook → PostOperationFacts | runtime-composition implements hook | execution-lifecycle invokes before finalizer | Collect guidance and capture the app-dependent artifact policy while app is alive; retain detached immutable facts; no artifact filesystem work |
 | internal/execution: CompletedExecution | execution-lifecycle | runtime-composition | Hook status and secondary failures; acquired context released exactly once after hook settles |
 | internal/artifacts: captureArtifactPolicy → CapturedArtifactPolicy | artifact-delivery | runtime-composition post-operation hook; static policy for routes that never reach the hook | Shape-checked detached snapshot or deferred fixed-cause failure; no host access |

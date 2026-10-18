@@ -20,7 +20,7 @@ export function ambiguousContext(requires: "remote" | "none") {
   // @ts-expect-error Level runners share the same single-selection requirement.
   family.defineCommand(levels, { examples: [{ why: "Read" }], handler: async () => ({ default: wrongLevel }) });
 
-  const write = { ...ambiguous, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate" } } as const;
+  const write = { ...ambiguous, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] } } as const;
   const wrongPrepare = mutation<typeof write, Unrelated, string, typeof errors.definitions, typeof globalFlags>({
     decode: { "~standard": { version: 1, vendor: "fixture", validate: () => { throw new Error("Compile-only decoder"); } } },
   prepare: async ({ app }) => ({ ok: true, value: app.accountId }),

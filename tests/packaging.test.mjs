@@ -143,7 +143,7 @@ for (const path of ['cli-for-agents/internal/registry', 'cli-for-agents/dist/ind
 import { createCli, nodeHost, runCli } from 'cli-for-agents/runtime';
 import { z } from 'zod';
 const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
-const save = family.defineCommand({ path: 'save', summary: 'Save', description: 'Save items', requires: 'none', effects: 'write', args: [], flags: {}, payload: { maxBytes: bytes(4096), validatePath: 'save-check' } },
+const save = family.defineCommand({ path: 'save', summary: 'Save', description: 'Save items', requires: 'none', effects: 'write', args: [], flags: {}, payload: { maxBytes: bytes(4096), validatePath: 'save-check', examples: [{ payload: {}, why: 'Example payload' }] } },
   { examples: [{ file: 'items.json', why: 'Save items' }], handler: async () => ({ default: mutation({ decode: z.object({ items: z.array(z.string()) }),
     prepare: async ({ payload }) => ({ ok: true, value: new Set(payload.items), preview: { records: payload.items.length } }),
     commit: async ({ prepared }) => ({ effect: 'applied', recovery: recoveryFacts([{ kind: 'save', id: String(prepared.value.size) }]), result: { ok: true, data: {} } }) }) }) });

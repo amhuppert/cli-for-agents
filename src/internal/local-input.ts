@@ -6,9 +6,9 @@ import { scalar } from "./input-model.js";
 import type { Issue, KernelCode } from "../results.js";
 import { kernelError, protocolLimits } from "../results.js";
 import { commandData } from "./declarations.js";
-import { executableRecord, payloadModule } from "./runner-modules.js";
+import { defaultExport, executableRecord, payloadModule, schemaResult } from "./runner-modules.js";
 import type { LazyPayload } from "./runner-modules.js";
-import { assertFields, assertNonnegativeInteger, assertRecord, boundedSummary, frozenJson } from "./validation.js";
+import { assertRecord, boundedSummary, frozenJson, thrownName } from "./validation.js";
 import { hasCode, InputOverflowError } from "./host.js";
 import { checkedSha256 } from "../values.js";
 import type { Sha256 } from "../values.js";
@@ -19,8 +19,10 @@ export type LocalInput = {
   readonly payload?: unknown; readonly payloadHash?: Sha256; readonly module: Readonly<Record<string, unknown>>; readonly decoder?: LazyPayload;
 };
 export type InputDiagnostic = { readonly message: string; readonly why: string };
+/** A contract failure keeps the caught error (a handler module that cannot load, a
+ * malformed decoder result) so execution can report its cause. */
 export type LocalResolution = { readonly ok: true; readonly input: LocalInput }
-  | { readonly ok: false; readonly code: KernelCode; readonly issues?: readonly Issue[]; readonly diagnostic?: InputDiagnostic };
+  | { readonly ok: false; readonly code: KernelCode; readonly issues?: readonly Issue[]; readonly diagnostic?: InputDiagnostic; readonly error?: unknown };
 
 /** A local input stage failure described without file contents or raw exception text. */
 class InputFailure extends TypeError {
@@ -46,24 +48,6 @@ function jsonCause(error: unknown, text: string): string {
   return `${reason} at line ${before.length} column ${before.at(-1)!.length + 1}.`;
 }
 
-function schemaIssues(value: unknown): readonly Issue[] {
-  if (!Array.isArray(value) || !value.length) throw new TypeError("Expected schema issues.");
-  const issues = value.map(entry => {
-    const issue = executableRecord(entry);
-    if (typeof issue["message"] !== "string") throw new TypeError("Expected schema issue message.");
-    const path = issue["path"];
-    if (path !== undefined && !Array.isArray(path)) throw new TypeError("Expected schema issue path.");
-    const normalized = path?.map((part: unknown) => {
-      const key: unknown = typeof part === "object" && part !== null ? executableRecord(part)["key"] : part;
-      if (typeof key === "symbol") return String(key);
-      if (typeof key !== "string") assertNonnegativeInteger(key);
-      return key;
-    });
-    return { code: "schema", message: issue["message"], ...(normalized === undefined ? {} : { path: normalized }) };
-  });
-  // The catalog owner checks diagnostic bounds and normalized path shape.
-  return kernelError("KERNEL_INPUT", { message: "Payload schema validation failed.", issues }).issues!;
-}
 export async function resolveLocalInput<Contexts, Code extends string, G extends Readonly<Record<string, Flag>>>(
   invocation: ParsedInvocation<Contexts, Code, G>, request: ResolvedRunRequest,
 ): Promise<LocalResolution> {
@@ -132,29 +116,23 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
     recordTestEvent(request.signal, { type: "handler.load", commandPath: command.spec.path });
     const loaded: unknown = await handler();
     request.signal.throwIfAborted();
-    if (loaded === null || typeof loaded !== "object" || !("default" in loaded)) throw new TypeError("Expected a lazy module with a default export.");
-    const defaultExport: unknown = loaded.default;
+    const exported = defaultExport(loaded);
     let module: Readonly<Record<string, unknown>>; let decoder: LazyPayload | undefined;
     if (model.spec.payload) {
-      decoder = payloadModule(defaultExport, model.spec.effects);
+      decoder = payloadModule(exported, model.spec.effects);
       module = decoder.handler;
       phase = "KERNEL_INPUT";
       let result: unknown;
       try { result = await decoder.decode["~standard"].validate(payload); }
       catch (error) {
-        const name = error instanceof Error && /^[A-Za-z_$][\w$]{0,63}$/u.test(error.name) ? error.name : "a non-Error value";
-        throw fail(input.sources.find(source => source.kind === "payload")!, "Payload decoder failed.", `decoder threw ${name} instead of returning schema issues.`);
+        throw fail(input.sources.find(source => source.kind === "payload")!, "Payload decoder failed.", `decoder threw ${thrownName(error) ?? "a non-Error value"} instead of returning schema issues.`);
       }
       request.signal.throwIfAborted();
       phase = "KERNEL_CONTRACT";
-      const checked = executableRecord(result);
-      if (checked["issues"] !== undefined) {
-        assertFields(checked, ["issues"]);
-        return { ok: false, code: "KERNEL_INPUT", issues: schemaIssues(checked["issues"]) };
-      }
-      assertFields(checked, ["value"], ["issues"]);
-      payload = checked["value"];
-    } else module = Object.freeze(executableRecord(defaultExport));
+      const decoded = schemaResult(result);
+      if (!decoded.ok) return { ok: false, code: "KERNEL_INPUT", issues: decoded.issues };
+      payload = decoded.value;
+    } else module = Object.freeze(executableRecord(exported));
     let payloadHash: Sha256 | undefined;
     if (decoder?.kind === "write") {
       if (!payloadBytes) throw new TypeError("Missing payload bytes.");
@@ -172,6 +150,6 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
       // The catalog owner checks the summary bounds; an unreportable detail keeps the plain refusal.
       try { kernelError("KERNEL_INPUT", error.diagnostic); return { ok: false, code: "KERNEL_INPUT", diagnostic: error.diagnostic }; } catch {}
     }
-    return { ok: false, code: phase };
+    return { ok: false, code: phase, ...(phase === "KERNEL_CONTRACT" ? { error } : {}) };
   }
 }

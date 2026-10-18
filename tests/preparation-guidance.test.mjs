@@ -9,7 +9,7 @@ function fixture(guidance) {
   let commits = 0;
   const family = commandsFor()({ errors: defineErrors({ REFUSED: { exitClass: "failed", description: "Admission refused" } }), globalFlags: {} });
   const read = family.defineCommand({ path: "status", summary: "Read status", description: "Inspect current state", requires: "none", effects: "read", args: [], flags: {} }, { examples: [{ why: "Read current state" }], handler: async () => ({ default: { run: async () => ({ ok: true, data: {} }) } }) });
-  const write = family.defineCommand({ path: "save", summary: "Save payload", description: "Prepare admission before saving", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(128), validatePath: "save-check" } }, {
+  const write = family.defineCommand({ path: "save", summary: "Save payload", description: "Prepare admission before saving", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(128), validatePath: "save-check", examples: [{ payload: {}, why: "Example payload" }] } }, {
     examples: [{ file: "/input.json", why: "Save a payload" }],
     handler: async () => ({ default: mutation({
       decode: { "~standard": { version: 1, vendor: "fixture", validate: value => ({ value }) } },
@@ -67,7 +67,7 @@ function previewFixture({ prepare, args = [], flags = {}, globals = {}, passthro
   const state = { prepared: 0, commits: 0, values: [], committed: [], inputs: [] };
   const family = commandsFor()({ errors: defineErrors({ REFUSED: { exitClass: "failed", description: "Admission refused" } }), globalFlags: globals });
   const read = family.defineCommand({ path: "status", summary: "Read status", description: "Inspect current state", requires: "none", effects: "read", args: [], flags: {} }, { examples: [{ why: "Read current state" }], handler: async () => ({ default: { run: async () => ({ ok: true, data: {} }) } }) });
-  const write = family.defineCommand({ path: "save", summary: "Save payload", description: "Prepare admission before saving", requires: "none", effects: "write", args, flags, ...(passthrough ? { passthrough: true } : {}), payload: { maxBytes: bytes(4096), validatePath: "save-check" } }, {
+  const write = family.defineCommand({ path: "save", summary: "Save payload", description: "Prepare admission before saving", requires: "none", effects: "write", args, flags, ...(passthrough ? { passthrough: true } : {}), payload: { maxBytes: bytes(4096), validatePath: "save-check", examples: [{ payload: {}, why: "Example payload" }] } }, {
     examples: [{ file: "/input.json", ...example, why: "Save a payload" }],
     handler: async () => ({ default: mutation({ decode: identity,
       prepare: async input => {

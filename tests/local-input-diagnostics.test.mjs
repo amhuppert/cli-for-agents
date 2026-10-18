@@ -17,7 +17,7 @@ function fixture({ decode = schema(value => ({ value })) } = {}) {
   const inspect = family.defineCommand({ path: "inspect", summary: "Inspect payload", description: "Inspect a payload with a document", requires: "none", effects: "read",
     args: [{ name: "document", description: "Document file", value: small, required: false }],
     flags: { body: { description: "Prose", value: { kind: "string", minLength: 3 }, fileSource: { maxBytes: bytes(64) } } },
-    payload: { maxBytes: bytes(64) } },
+    payload: { maxBytes: bytes(64), examples: [{ payload: {}, why: "Example payload" }] } },
   { examples: [{ file: "payload.json", why: "Inspect data" }], handler: async () => {
     events.push("load");
     return { default: payloadRead({ decode, run: async () => { events.push("run"); return { ok: true, data: {} }; } }) };

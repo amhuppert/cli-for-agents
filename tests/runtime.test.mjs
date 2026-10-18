@@ -176,7 +176,7 @@ test('context-free production command exposes its family catalog and no app', as
 test('bad schema fails before transport, guidance and policy initialization', async () => {
   let hooks = 0;
   const fail = async () => { hooks++; throw Error('off-path transport'); };
-  const x = fixture({ spec: { payload: { maxBytes: bytes(256) } }, example: { file: '/payload.json' }, files: { '/payload.json': '{}' },
+  const x = fixture({ spec: { payload: { maxBytes: bytes(256), examples: [{ payload: {}, why: 'Example payload' }] } }, example: { file: '/payload.json' }, files: { '/payload.json': '{}' },
     load: () => ({ default: payloadRead({ decode: schema(() => ({ issues: [{ message: 'Missing name', path: ['name'] }] })), run: fail }) }),
     acquire: fail, artifacts: { resolve: fail }, guidance: { load: fail, conflictSink: fail } });
   const result = await run(x, ['inspect', '--file', '/payload.json', '--json']);
@@ -186,14 +186,14 @@ test('bad schema fails before transport, guidance and policy initialization', as
   assert.deepEqual(x.events, ['load']);
 });
 for (const failure of ['throw', 'domain']) test(`provider ${failure} supplies central doctor without running handler`, async () => {
-  const x = fixture({ acquire: async () => { if (failure === 'throw') throw Error('transport secret'); return { ok: false, error: x.errors.error('OFFLINE', { message: 'Disconnected' }) }; } });
+  const x = fixture({ acquire: async () => { if (failure === 'throw') throw Error('transport refused'); return { ok: false, error: x.errors.error('OFFLINE', { message: 'Disconnected' }) }; } });
   const result = await run(x);
   assert.equal(result.exitCode, 3);
   const value = wire(result);
   assert.equal(value.error.code, failure === 'throw' ? 'KERNEL_CONTEXT' : 'OFFLINE');
   assert.equal(value.error.doctor.path, 'doctor');
   assert.deepEqual(x.events, ['load', 'acquire']);
-  assert.doesNotMatch(result.stdout, /transport secret/);
+  assert.deepEqual(value.error.details, failure === 'throw' ? { thrown: { name: 'Error', message: 'transport refused' } } : undefined);
 });
 test('rule conflict is arbitrated once after release and retains applied facts', async () => {
   const conflicts = [];
@@ -242,7 +242,7 @@ for (const explicit of [false, true]) test(`finite binary request uses productio
 });
 test('payload prepare, validation twin and commit run through the same declaration', async () => {
   let preparations = 0; let commits = 0;
-  const x = fixture({ spec: { effects: 'write', payload: { maxBytes: bytes(256), validatePath: 'validate' } }, example: { file: '/payload.json' }, files: { '/payload.json': '{"value":42}' },
+  const x = fixture({ spec: { effects: 'write', payload: { maxBytes: bytes(256), validatePath: 'validate', examples: [{ payload: {}, why: 'Example payload' }] } }, example: { file: '/payload.json' }, files: { '/payload.json': '{"value":42}' },
     load: () => ({ default: mutation({ decode: schema(value => ({ value })), prepare: async () => { preparations++; return { ok: true, value: {} }; }, commit: async () => { commits++; return { effect: 'applied', recovery: receipt, result: { ok: true, data: {} } }; } }) }) });
   assert.equal((await run(x, ['validate', '--file', '/payload.json', '--json'])).exitCode, 0);
   assert.equal(commits, 0);
@@ -323,7 +323,7 @@ for (const mode of ['success', 'handler failure', 'domain failure', 'guidance fa
       run: async ({ app, ctx }) => {
         app.inspect('handler');
         assert.equal(ctx.command, x.command); assert.equal(ctx.errors, x.family.errors);
-        if (mode === 'handler failure') throw Error('handler secret');
+        if (mode === 'handler failure') throw Error('handler exception');
         if (mode === 'domain failure') return { ok: false, error: ctx.errors.error('OFFLINE', { message: 'Disconnected' }) };
         if (mode === 'aborted wait') { enterWait(); await ctx.clock.sleep(milliseconds(10000), ctx.signal); }
         return { ok: true, data: { details: 'x'.repeat(10000) }, instruction: instruction('owner', 'Inspect saved state.') };
@@ -354,7 +354,9 @@ for (const mode of ['success', 'handler failure', 'domain failure', 'guidance fa
     const code = { 'handler failure': 'KERNEL_HANDLER', 'domain failure': 'OFFLINE', 'guidance failure': 'KERNEL_GUIDANCE', 'policy failure': 'KERNEL_OUTPUT', 'aborted wait': 'KERNEL_CANCELLED', 'guidance cancellation': 'KERNEL_CANCELLED', 'policy cancellation': 'KERNEL_CANCELLED', 'release failure': 'KERNEL_RELEASE' }[mode];
     if (code) assert.equal(value.error.code, code);
     if (!mode.includes('cancellation')) assert.equal(value.instruction, 'Inspect saved state.');
+    // Secondary guidance, policy and release failures never echo exception text.
     assert.doesNotMatch(result.stdout, /secret/);
+    if (mode === 'handler failure') assert.deepEqual(value.error.details, { thrown: { name: 'Error', message: 'handler exception' } });
     assert.throws(() => app.inspect('after-run'), /released app/);
   });
 }

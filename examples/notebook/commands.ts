@@ -32,7 +32,7 @@ export const applySpec = {
   description: "Validate a structured file, then commit it in one operation.",
   args: [],
   flags: {},
-  payload: { maxBytes: bytes(2 * 1024 * 1024), validatePath: "claim validate" },
+  payload: { maxBytes: bytes(2 * 1024 * 1024), validatePath: "claim validate", examples: [{ payload: { claims: [{ id: "c1", text: "Claim text" }] }, why: "Apply one claim" }] },
 } as const satisfies CommandSpec;
 export const apply = command(applySpec, {
   examples: [{ args: {}, flags: {}, file: ".cache/claims.json", why: "Run claim validate with this file first." }],

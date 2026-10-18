@@ -3,6 +3,10 @@ import { bytes } from "../values.js";
 import { referencePaths, renderCommandReference } from "./help.js";
 import { sameBytes } from "./host.js";
 import { cliConfiguration, cliRegistry, registryState } from "./registry.js";
+import { commandData } from "./declarations.js";
+import { defaultExport, payloadModule, schemaResult } from "./runner-modules.js";
+import { thrownName } from "./validation.js";
+import type { Issue } from "../results.js";
 
 export async function referenceHost(options: ReferenceOptions): Promise<ReferenceHost> {
   options.signal.throwIfAborted();
@@ -14,19 +18,63 @@ export async function checkReferences<Contexts>(cli: Cli<Contexts>, options: Ref
   options.signal.throwIfAborted();
   const config = cliConfiguration(cli);
   const documented = new Set(referencePaths(cli, options));
-  // A twin shares its command's skills; check them once under the command's path.
+  // A twin shares its command's skills and examples; check them once under the command's path.
   const owners = new Set<string>();
-  const refs = Object.values(registryState(cliRegistry(cli)).nodes).filter(node => documented.has(node.path)).flatMap(node => {
+  const nodes = Object.values(registryState(cliRegistry(cli)).nodes).filter(node => {
+    if (!documented.has(node.path)) return false;
     const owner = node.kind === "validation" ? node.model!.spec.path : node.path;
-    if (owners.has(owner)) return [];
+    if (owners.has(owner)) return false;
     owners.add(owner);
-    return (node.group ?? node.model?.spec)?.skills?.map(skill => ({ commandPath: owner, reference: skill.path })) ?? [];
+    return true;
   });
-  if (!refs.length) return { ok: true, checked: 0, issues: [] };
+  const issues: ReferenceIssue[] = [];
+  let checked = 0;
+  for (const node of nodes) if (node.command && node.model!.spec.payload) {
+    checked += node.model!.spec.payload.examples.length;
+    issues.push(...await checkPayloadExamples(node.command, options.signal));
+  }
+  const refs = nodes.flatMap(node => (node.group ?? node.model?.spec)?.skills
+    ?.map(skill => ({ commandPath: node.model?.spec.path ?? node.path, reference: skill.path })) ?? []);
+  checked += refs.length;
+  if (refs.length) issues.push(...await checkSkills(config.documentation?.directory, refs, options));
+  options.signal.throwIfAborted();
+  return issues.length ? { ok: false, checked, issues: [issues[0]!, ...issues.slice(1)] } : { ok: true, checked, issues: [] };
+}
+
+/** Decode each declared example with the command's own lazy decoder. Loading the handler
+ * module is the point; no runner is called and no context is acquired. */
+async function checkPayloadExamples(command: object, signal: AbortSignal): Promise<readonly ReferenceIssue[]> {
+  const { model, handler } = commandData(command);
+  const spec = model.spec;
+  signal.throwIfAborted();
+  const loaded: unknown = await handler();
+  signal.throwIfAborted();
+  const decoder = payloadModule(defaultExport(loaded), spec.effects);
+  const issues: ReferenceIssue[] = [];
+  for (const [index, example] of spec.payload!.examples.entries()) {
+    signal.throwIfAborted();
+    const invalid = (found: readonly Issue[]): void => {
+      issues.push({ code: "invalid_payload_example", commandPath: spec.path, reference: `payload.examples[${index}]`, issues: found });
+    };
+    let result: unknown;
+    try { result = await decoder.decode["~standard"].validate(example.payload); }
+    catch (error) {
+      signal.throwIfAborted();
+      invalid([{ code: "decoder", message: `The payload decoder threw ${thrownName(error) ?? "a non-Error value"} instead of returning schema issues.` }]);
+      continue;
+    }
+    let decoded: ReturnType<typeof schemaResult>;
+    try { decoded = schemaResult(result); }
+    catch { invalid([{ code: "decoder", message: "The payload decoder returned a malformed result." }]); continue; }
+    if (!decoded.ok) invalid(decoded.issues);
+  }
+  return issues;
+}
+
+async function checkSkills(directory: string | undefined, refs: readonly { readonly commandPath: string; readonly reference: string }[], options: ReferenceOptions): Promise<readonly ReferenceIssue[]> {
   const host = await referenceHost(options);
   const path = await import("node:path");
   const issues: ReferenceIssue[] = [];
-  const directory = config.documentation?.directory;
   let root: string | undefined;
   if (directory) {
     root = await host.files.canonicalPath(directory);
@@ -46,8 +94,7 @@ export async function checkReferences<Contexts>(cli: Cli<Contexts>, options: Ref
       issues.push({ ...ref, code: "invalid_reference" });
     }
   }
-  options.signal.throwIfAborted();
-  return issues.length ? { ok: false, checked: refs.length, issues: [issues[0]!, ...issues.slice(1)] } : { ok: true, checked: refs.length, issues: [] };
+  return issues;
 }
 
 /** Only the selected, unique whole-line marker pair is replaceable. The block is the

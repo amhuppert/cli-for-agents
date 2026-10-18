@@ -5,7 +5,7 @@ import { commandData } from "../internal/declarations.js";
 import type { Issue } from "../results.js";
 import type { NonEmpty } from "../values.js";
 import { protocolLimits } from "../results.js";
-import { assertFields, assertIdentifier, assertInvocation, assertSerializedLimit, assertText, frozenJson } from "../internal/validation.js";
+import { assertFields, assertIdentifier, assertInvocation, assertSerializedLimit, assertText, contractCheck, frozenJson } from "../internal/validation.js";
 
 /** Advisory action and registered target; rendering owns quoting and line bounds. */
 export type Hint = Brand<"Hint"> & {
@@ -29,19 +29,23 @@ export type Reminder = Brand<"Reminder"> & {
 };
 
 export function hint(invocation: Invocation, action: string): Hint {
-  const value = frozenJson({ invocation, action });
-  assertInvocation(value.invocation);
-  assertText(value.action);
-  assertSerializedLimit(value.action, protocolLimits.diagnosticSummary);
-  assertSerializedLimit({ invocation: value.invocation }, protocolLimits.references);
-  return value as Hint;
+  return contractCheck(() => {
+    const value = frozenJson({ invocation, action });
+    assertInvocation(value.invocation);
+    assertText(value.action);
+    assertSerializedLimit(value.action, protocolLimits.diagnosticSummary);
+    assertSerializedLimit({ invocation: value.invocation }, protocolLimits.references);
+    return value as Hint;
+  });
 }
 export function instruction(ownerId: string, text: string): Instruction {
-  assertIdentifier(ownerId);
-  assertText(text);
-  const value = { ownerId, text };
-  assertSerializedLimit(value, protocolLimits.instruction);
-  return frozenJson(value) as Instruction;
+  return contractCheck(() => {
+    assertIdentifier(ownerId);
+    assertText(text);
+    const value = { ownerId, text };
+    assertSerializedLimit(value, protocolLimits.instruction);
+    return frozenJson(value) as Instruction;
+  });
 }
 
 type GuidanceChoice<H, I> =

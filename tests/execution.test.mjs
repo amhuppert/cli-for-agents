@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { commandsFor, defineErrors, invocation, bytes, payloadRead, mutation, runner, writeRunner, recoveryFacts, milliseconds } from "cli-for-agents";
+import { commandsFor, defineErrors, invocation, validationInvocation, bytes, count, elide, id, page, binaryArtifact, payloadRead, mutation, runner, writeRunner, recoveryFacts, milliseconds } from "cli-for-agents";
+import { hint, instruction } from "cli-for-agents/guidance";
 import { createCli } from "cli-for-agents/runtime";
 import { createTestHost } from "cli-for-agents/testing";
 import { cliRegistry, resolve } from "../dist/internal/registry.js";
@@ -26,7 +27,7 @@ async function local(x) {
   const result = await resolveLocalInput(x.resolution.invocation, x.request);
   return result;
 }
-const payload = { maxBytes: bytes(64) };
+const payload = { maxBytes: bytes(64), examples: [{ payload: {}, why: "Example payload" }] };
 for (const [name, options] of [
   ["missing file", { argv: ["--file", "missing"] }],
   ["malformed JSON", { files: { "payload.json": "not JSON" } }],
@@ -147,7 +148,7 @@ test("keyed provider and handler receive declared globals, env, host, signal and
 for (const outcome of ["success", "failure", "throw", "cancel"]) test(`context finalizes exactly once after ${outcome}`, async () => {
   let releases = 0; const controller = new AbortController();
   const x = fixture({ load: () => ({ default: { run: async () => {
-    if (outcome === "throw") throw new Error("secret handler exception");
+    if (outcome === "throw") throw new Error("handler exception");
     if (outcome === "cancel") { controller.abort(); controller.signal.throwIfAborted(); }
     return outcome === "failure" ? { ok: false, error: x.family.errors.error("REFUSED", { message: "Cannot inspect" }) } : { ok: true, data: {} };
   } } }) });
@@ -155,7 +156,7 @@ for (const outcome of ["success", "failure", "throw", "cancel"]) test(`context f
   assert.equal(releases, 1); assert.equal(result.postOperation, "completed");
   assert.equal(result.execution.result.ok, outcome === "success");
   if (outcome !== "success") assert.equal(result.execution.result.error.code, { failure: "REFUSED", throw: "KERNEL_HANDLER", cancel: "KERNEL_CANCELLED" }[outcome]);
-  assert.doesNotMatch(JSON.stringify(result), /secret handler exception/);
+  assert.deepEqual(result.execution.result.error?.details, outcome === "throw" ? { thrown: { name: "Error", message: "handler exception" } } : undefined);
 });
 test("release waits for a bounded post-operation hook and retains detached facts", async () => {
   const events = []; const app = { open: true }; let enter; let finish;
@@ -234,6 +235,101 @@ test("throwing scalar writes report unknown acknowledgment without input secrets
   assert.deepEqual(result.execution.operation.recovery, { kind: "unknown_acknowledgment", commandPath: "inspect", advice: "inspect_before_retry" });
   assert.doesNotMatch(JSON.stringify(result), /private-token/);
 });
+const commitFixture = commit => fixture({ extra: { effects: "write", payload: { ...payload, validatePath: "validate" } }, argv: ["--file", "payload.json"], files: { "payload.json": "{}" },
+  load: () => ({ default: mutation({ decode: identitySchema, prepare: async () => ({ ok: true, value: {} }), commit }) }) });
+const acquired = { remote: async () => ({ ok: true, app: {} }) };
+test("a commit that throws reports the thrown class and message with an unknown effect", async () => {
+  const result = await run(commitFixture(async () => { throw new TypeError("x"); }), acquired);
+  assert.equal(result.execution.result.error.code, "KERNEL_HANDLER");
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "TypeError", message: "x" } });
+  assert.equal(result.execution.operation.effect, "unknown");
+  assert.equal(result.execution.operation.recovery.kind, "unknown_acknowledgment");
+});
+test("an application TypeError such as a failed fetch stays a handler failure and names one level of cause", async () => {
+  const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1", { cause: new Error("deeper") }), { code: "ECONNREFUSED" });
+  const result = await run(commitFixture(async () => { throw new TypeError("fetch failed", { cause }); }), acquired);
+  assert.equal(result.execution.result.error.code, "KERNEL_HANDLER");
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "TypeError", message: "fetch failed", cause: { name: "Error", message: "connect ECONNREFUSED 127.0.0.1:1" } } });
+  assert.equal(result.execution.operation.effect, "unknown");
+});
+for (const [name, refuse] of [
+  ["recoveryFacts", () => recoveryFacts([{ kind: "attempt", id: "two words" }])],
+  ["page", () => page({ items: [], total: { kind: "unknown" }, more: true })],
+  ["elide", x => elide("x".repeat(20), { maxBytes: bytes(1), reveal: { ...invocation(x.command, { file: "payload.json" }), effects: "write" } })],
+  ["binaryArtifact", () => binaryArtifact({ bytes: new Uint8Array(), mediaType: "not a type", basename: "x.bin", summary: {} })],
+  ["bytes", () => bytes(-1)], ["count", () => count(1.5)], ["milliseconds", () => milliseconds(-1)], ["id", () => id("item", "two words")],
+  ["catalog error", x => x.family.errors.error("ABSENT", { message: "Missing" })],
+  ["invocation", x => invocation(x.command, { file: 7 })],
+  ["validationInvocation", x => validationInvocation(x.command, { file: 7 })],
+  ["hint", x => hint({ ...invocation(x.command, { file: "payload.json" }), effects: "maybe" }, "Retry")],
+  ["instruction", () => instruction("owner id", "Stop")],
+]) test(`a handler that lets a ${name} refusal escape is a contract failure with the effect it already had`, async () => {
+  let x;
+  x = commitFixture(async () => { refuse(x); throw new Error("refusal did not throw"); });
+  const result = await run(x, acquired);
+  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
+  assert.equal(result.execution.result.error.details.thrown.name, "ContractError");
+  assert.equal(result.execution.operation.effect, "unknown");
+});
+test("a library refusal is a TypeError named ContractError that keeps its message", () => {
+  assert.throws(() => recoveryFacts([{ kind: "attempt", id: "two words" }]), error => error instanceof TypeError && error.name === "ContractError" && error.message === "Identifiers cannot contain whitespace.");
+});
+test("a recoveryFacts refusal names its cause", async () => {
+  const result = await run(commitFixture(async () => ({ effect: "applied", recovery: recoveryFacts([{ kind: "attempt", id: "two words" }]), result: { ok: true, data: {} } })), acquired);
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "ContractError", message: "Identifiers cannot contain whitespace." } });
+});
+test("a thrown message is bounded, single-line and never repeats a secret input", async () => {
+  const x = fixture({ extra: { effects: "write", flags: { token: { description: "Token", value: { kind: "string" }, secret: true } } }, argv: ["--token", "private-token"],
+    load: () => ({ default: { run: async () => { throw new Error(`rejected private-token\n${"é".repeat(600)}`); } } }) });
+  const result = await run(x, acquired);
+  const { message } = result.execution.result.error.details.thrown;
+  assert.match(message, /^rejected <redacted> é+…$/);
+  assert.ok(new TextEncoder().encode(JSON.stringify(message)).byteLength <= 512);
+});
+const prepareFixture = prepare => fixture({ extra: { effects: "write", payload: { ...payload, validatePath: "validate" } }, argv: ["--file", "payload.json"], files: { "payload.json": "{}" },
+  load: () => ({ default: mutation({ decode: identitySchema, prepare, commit: async () => { throw new Error("commit touched"); } }) }) });
+for (const [name, prepare, code, thrown] of [
+  ["throws", async () => { throw new RangeError("lookup failed"); }, "KERNEL_HANDLER", { name: "RangeError", message: "lookup failed" }],
+  ["returns a malformed preparation", async () => ({ ok: true }), "KERNEL_CONTRACT", { name: "ContractError", message: "Record fields do not match the contract." }],
+  ["throws a non-Error value", async () => { throw "plain"; }, "KERNEL_HANDLER", { name: "non-Error value" }],
+]) test(`a prepare that ${name} keeps the not_applied effect and reports its cause`, async () => {
+  const result = await run(prepareFixture(prepare), acquired);
+  assert.equal(result.execution.result.error.code, code);
+  assert.deepEqual(result.execution.result.error.details, { thrown });
+  assert.equal(result.execution.operation.effect, "not_applied");
+});
+test("a cancelled handler reports no thrown cause", async () => {
+  const controller = new AbortController();
+  const x = commitFixture(async () => { controller.abort(); throw new Error("aborted transport"); });
+  const result = await run(x, acquired, emptyFacts, { ...x.request, signal: controller.signal });
+  assert.equal(result.execution.result.error.code, "KERNEL_CANCELLED");
+  assert.equal(result.execution.result.error.details, undefined);
+});
+test("redaction also covers the trimmed form of a secret read from a file and a secret global", async () => {
+  const x = fixture({ extra: { effects: "write", flags: { credential: { description: "Credential file", value: { kind: "file", maxBytes: bytes(64) }, secret: true } } },
+    globals: { key: { description: "Key", value: { kind: "string" }, secret: true } }, argv: ["--credential", "token.txt", "--key", "global-key-1"], files: { "token.txt": "s3cr3t-value\n" },
+    load: () => ({ default: { run: async ({ ctx }) => { throw new Error(`401 for ${ctx.flags.credential.trim()} with ${ctx.globals.key}`); } } }) });
+  const result = await run(x, acquired);
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "Error", message: "401 for <redacted> with <redacted>" } });
+});
+test("a handler module that cannot load reports its cause", async () => {
+  const x = fixture({ load: () => { throw new Error("Cannot find module './transport.js'"); } });
+  const result = await run(x, acquired);
+  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "Error", message: "Cannot find module './transport.js'" } });
+  assert.equal(x.acquired(), 0);
+});
+test("a reported recovery the library refuses is named instead of the effect mismatch it causes", async () => {
+  const result = await run(commitFixture(async () => ({ effect: "applied", recovery: { kind: "reported", references: [{ kind: "attempt", id: "two words" }] }, result: { ok: true, data: {} } })), acquired);
+  assert.equal(result.execution.result.error.code, "KERNEL_CONTRACT");
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "ContractError", message: "Identifiers cannot contain whitespace." } });
+  assert.equal(result.execution.operation.effect, "unknown");
+});
+test("a context provider that throws reports its cause", async () => {
+  const result = await run(fixture(), { remote: async () => { throw new RangeError("connect refused"); } });
+  assert.equal(result.execution.result.error.code, "KERNEL_CONTEXT");
+  assert.deepEqual(result.execution.result.error.details, { thrown: { name: "RangeError", message: "connect refused" } });
+});
 test("level inventory is checked before provider acquisition", async () => {
   const x = fixture({ extra: { levels: { full: { output: "bounded" } } }, load: () => ({ default: { run: async () => ({ ok: true, data: {} }) } }) });
   const result = await run(x);
@@ -269,7 +365,7 @@ test("handler clock sleep uses the injected fake clock", async () => {
 });
 function mutationFixture({ prepare, commit, decode = identitySchema, text = '{"name":"new"}' } = {}) {
   const state = { names: [], prepared: 0, committed: 0, released: 0, decoded: 0 };
-  const x = fixture({ extra: { effects: "write", payload: { maxBytes: bytes(128), validatePath: "validate" } }, argv: ["--file", "payload.json"], files: { "payload.json": text },
+  const x = fixture({ extra: { effects: "write", payload: { maxBytes: bytes(128), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] } }, argv: ["--file", "payload.json"], files: { "payload.json": text },
     load: () => ({ default: mutation({ decode: schema(async value => { state.decoded++; return decode["~standard"].validate(value); }),
       prepare: async input => { state.prepared++; return prepare ? prepare(input, x, state) : { ok: true, value: { name: input.payload.name } }; },
       commit: async input => { state.committed++; if (commit) return commit(input, x, state);
@@ -340,7 +436,7 @@ test("invalid injected hash fails locally before context acquisition", async () 
 });
 test("payload commit renderer is paired with its checked result and invoked after release", async () => {
   let released = false;
-  const x = fixture({ extra: { effects: "write", payload: { maxBytes: bytes(128), validatePath: "validate" } }, argv: ["--file", "payload.json"], files: { "payload.json": "{}" },
+  const x = fixture({ extra: { effects: "write", payload: { maxBytes: bytes(128), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] } }, argv: ["--file", "payload.json"], files: { "payload.json": "{}" },
     load: () => ({ default: mutation({ decode: identitySchema, prepare: async () => ({ ok: true, value: {} }),
       commit: writeRunner({ run: async () => ({ effect: "applied", recovery: recoveryFacts([{ kind: "revision", id: "saved" }]), result: { ok: true, data: { saved: true } } }), text: data => {
         assert.equal(released, true); assert.equal(data.saved, true); throw new Error("renderer failed");

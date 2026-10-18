@@ -11,7 +11,7 @@ for (const scenario of [
   { name: "variadic argument", args: [{ name: "targets", description: "Targets", value: string, variadic: true }], example: { args: { targets: ["one"] } }, path: ["args", "targets"], text: "<targets>" },
   { name: "global flag", globals: { region: { description: "Region", value: string, required: true } }, example: { flags: { region: "local" } }, path: ["globals", "region"], text: "--region" },
   { name: "prose alternative", flags: { body: { description: "Body", value: string, fileSource: { maxBytes: bytes(128) }, required: true } }, example: { flags: { body: "text" } }, path: ["flags", "body"], text: "--body", alternative: "--body-file" },
-  { name: "payload file", payload: { maxBytes: bytes(128) }, example: { file: "request.json" }, path: ["file"], text: "--file" },
+  { name: "payload file", payload: { maxBytes: bytes(128), examples: [{ payload: {}, why: "Example payload" }] }, example: { file: "request.json" }, path: ["file"], text: "--file" },
 ]) test(`missing required ${scenario.name} names its input in text and structured diagnostics before IO`, async () => {
   let touched = 0;
   const family = commandsFor()({ errors: defineErrors({}), globalFlags: scenario.globals ?? {} });

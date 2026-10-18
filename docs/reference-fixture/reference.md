@@ -102,6 +102,7 @@ Flags:
 
 Payload:
 Structured file or stdin (-), maximum 4096 bytes.
+Example: {"id":"r1","title":"First record"} — Create one record
 
 Examples:
 reference-fixture records validate --file=record.json — Apply a validated record
@@ -130,6 +131,7 @@ Flags:
 
 Payload:
 Structured file or stdin (-), maximum 4096 bytes.
+Example: {"id":"r1","title":"First record"} — Create one record
 
 Examples:
 reference-fixture records write --file=record.json — Apply a validated record

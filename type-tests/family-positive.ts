@@ -1,4 +1,4 @@
-import { recoveryFacts, runner, type JsonData } from "cli-for-agents";
+import { elide, recoveryFacts, runner, type Elision, type JsonData, type PayloadDeclaration } from "cli-for-agents";
 /** Unsuppressed family/provider/handler positives, compiled in their own program. */
 import { commandsFor, defineErrors, bytes, invocation, mutation, type CommandSpec, type ReadHandler, type FamilyCode, type CliError, type AnyResult, type Result, type Preparation, type AnyCommitReport } from "cli-for-agents";
 import { createCli, type ContextProviders, type GuidanceProvider, type Host } from "cli-for-agents/runtime";
@@ -78,13 +78,18 @@ declare const result: Result<Dto, FamilyCode<typeof errors.definitions>>;
 accepts<AnyResult<FamilyCode<typeof errors.definitions>>>(result);
 accepts<Preparation<Dto, FamilyCode<typeof errors.definitions>>>({ ok: false, error: errors.error("DENIED", { message: "Denied" }) });
 accepts<AnyCommitReport<FamilyCode<typeof errors.definitions>>>({ effect: "not_applied", result: { ok: false, error: kernelError } });
-const writeSpec = { ...spec, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate" } } as const;
+const writeSpec = { ...spec, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] } } as const;
 const writeModule = mutation<typeof writeSpec, Contexts["remote"], Dto, typeof errors.definitions, typeof globalFlags>({
   decode: { "~standard": { version: 1, vendor: "fixture", validate: () => { throw new Error("Compile-only decoder"); } } },
   prepare: async () => ({ ok: true, value: { id: "1" } }),
   commit: async ({ prepared }) => ({ effect: "applied", result: { ok: true, data: { id: prepared.value.id } }, recovery: recoveryFacts([{ kind: "operation", id: "reported-1" }]) }),
 });
 family.defineCommand(writeSpec, { examples: [{ why: "Apply", file: "request.json" }], handler: async () => ({ default: writeModule }) });
+// A payload can point at the read command that prints its full schema.
+accepts<PayloadDeclaration>({ maxBytes: bytes(100), examples: [{ payload: { id: "1" }, why: "Apply one" }], schema: invocation(command, {}) });
+// An elided field keeps the caller's DTO type beside the Elision marker.
+const field: JsonData<Dto> | Elision = elide<Dto>({ id: "1" }, { maxBytes: bytes(64), reveal: invocation(command, {}) });
+accepts<string | true>("elided" in field ? field.elided : field.id);
 
 // All four package surfaces consume the same bound declaration and context map.
 import { hint } from "cli-for-agents/guidance";

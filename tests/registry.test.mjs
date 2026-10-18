@@ -42,7 +42,7 @@ for (const [name, configure, error] of [
   ["malformed doctor", x => ({ doctor: { ...x.options.doctor, args: "x" } }), /doctor|invocation|tokens/i],
   ["missing provider", x => ({ commands: [x.doctor, x.command("remote", { requires: "remote" })] }), /context|provider/i],
   ["reserved route", x => ({ commands: [x.doctor, x.command("exit-codes")] }), /reserved/i],
-  ["duplicate twin", x => ({ commands: [x.doctor, x.f.defineCommand(spec("write", { effects: "write", payload: { maxBytes: bytes(10), validatePath: "doctor" } }), { ...binding, examples: [{ file: "payload.json", why: "Write" }] })] }), /duplicate/i],
+  ["duplicate twin", x => ({ commands: [x.doctor, x.f.defineCommand(spec("write", { effects: "write", payload: { maxBytes: bytes(10), validatePath: "doctor", examples: [{ payload: {}, why: "Example payload" }] } }), { ...binding, examples: [{ file: "payload.json", why: "Write" }] })] }), /duplicate/i],
   ["unsafe skill path", x => ({ documentation: { directory: "docs" }, commands: [x.doctor, x.command("list", { skills: [{ path: "../secret", readWhen: "Always" }] })] }), /reference|skill/i],
   ["missing documentation root", x => ({ commands: [x.doctor, x.command("list", { skills: [{ path: "guide.md", readWhen: "Always" }] })] }), /documentation/i],
   ["foreign flow step", () => ({ flows: [defineFlow({ id: "flow", steps: [{ command: fixture().doctor, description: "Inspect" }] })] }), /flow|member/i],
@@ -101,7 +101,7 @@ test("binding snapshots metadata and retains lazy references", () => {
 const { cliRegistry, registryState } = await import("../dist/internal/registry.js");
 test("one graph derives groups, payload twins, selector and file help inputs", () => {
   const x = fixture({ region: valueFlag({ kind: "enum", values: ["us", "eu"] }, { default: "us" }) });
-  const write = x.f.defineCommand(spec("items write", { effects: "write", payload: { maxBytes: bytes(100), validatePath: "items validate" }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) } }), { ...binding, examples: [{ file: "data.json", why: "Write" }] });
+  const write = x.f.defineCommand(spec("items write", { effects: "write", payload: { maxBytes: bytes(100), validatePath: "items validate", examples: [{ payload: {}, why: "Example payload" }] }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) } }), { ...binding, examples: [{ file: "data.json", why: "Write" }] });
   const read = x.command("items list", { levels: { context: { output: "bounded" }, full: { selectors: ["context", "full"], output: "artifact-eligible" } } });
   const group = defineGroup({ path: "items", summary: "Items", description: "Manage items" });
   const cli = createCli({ ...x.options, commands: [x.doctor, write, read], groups: [group], flows: [defineFlow({ id: "inspect", steps: [{ command: read, description: "Inspect items" }] })] });
@@ -200,7 +200,7 @@ test("globals keep their meaning before, between and after path and positional t
 });
 
 test("all command-specific generated inputs require the full leaf path", () => {
-  const x = parseFixture({ payload: { maxBytes: bytes(50) }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) }, levels: { full: { output: "artifact-eligible" } } }, { file: "data.json" });
+  const x = parseFixture({ payload: { maxBytes: bytes(50), examples: [{ payload: {}, why: "Example payload" }] }, flags: { text: stringFlag({ fileSource: { maxBytes: bytes(20) } }) }, levels: { full: { output: "artifact-eligible" } } }, { file: "data.json" });
   for (const flags of [["--text=value"], ["--text-file", "note.md"], ["--file=data.json"], ["--full"], ["--out", "result.json"]]) {
     for (const argv of [[...flags, "items", "list", "--help"], ["items", ...flags, "list", "--help"]]) {
       const refused = x.parse(argv);
@@ -262,6 +262,18 @@ test("offline routes and unknown paths resolve without lazy acquisition", () => 
     [["items", "list", "--help"], "help", "items list"], [["--version"], "version", ""], [["version"], "version", ""], [["exit-codes"], "exit-codes", ""],
   ]) assert.deepEqual(x.parse(tokens), { kind: "offline", route, path, json: tokens.includes("--json"), explicitJson: tokens.includes("--json") ? true : undefined });
   for (const tokens of [["items"], ["items", "missing"], ["missing", "--help"], ["items", "missing", "--version"], ["items", "list", "--bogus", "--help"]]) assert.equal(x.parse(tokens).kind, "invalid");
+});
+
+test("a malformed route token gets the unknown-path explanation listing the hub's commands", () => {
+  const x = parseFixture();
+  for (const [tokens, hub, commands] of [
+    [["items list"], "tool", "doctor, items"], [["items list", "--help"], "tool", "doctor, items"],
+    [["items", "List"], "tool items", "items list"], [["items", "missing"], "tool items", "items list"],
+  ]) {
+    const resolved = x.parse(tokens);
+    assert.equal(resolved.kind, "invalid", JSON.stringify(tokens));
+    assert.deepEqual(resolved.issues, [{ code: "invalid_value", message: `Unknown command path. Use ${hub} --help. Commands: ${commands}.` }], JSON.stringify(tokens));
+  }
 });
 
 test("explicit format metadata describes exactly one valid format flag in every resolution", () => {
@@ -337,7 +349,8 @@ test("file inputs retain paths and bounds for execution; inline and derived alte
 
 test("structured reads and write validation twins accept the same file declaration", () => {
   for (const effects of ["read", "write"]) {
-    const payload = effects === "read" ? { maxBytes: bytes(64) } : { maxBytes: bytes(64), validatePath: "items validate" };
+    const examples = [{ payload: {}, why: "Example payload" }];
+    const payload = effects === "read" ? { maxBytes: bytes(64), examples } : { maxBytes: bytes(64), validatePath: "items validate", examples };
     const x = parseFixture({ effects, payload }, { file: "data.json" });
     const parsed = leaf(x.parse(["items", effects === "read" ? "list" : "validate", "--file=-"]));
     assert.equal(parsed.command, x.command);
@@ -350,7 +363,7 @@ test("structured reads and write validation twins accept the same file declarati
 });
 
 test("every combination of two selected stdin consumers is refused before a read", () => {
-  const x = parseFixture({ args: [arg("document", { kind: "file", maxBytes: bytes(10) })], flags: { note: stringFlag({ fileSource: { maxBytes: bytes(20) } }), raw: valueFlag({ kind: "file", maxBytes: bytes(30) }) }, payload: { maxBytes: bytes(40) } }, { args: { document: "doc.txt" }, file: "data.json" }, { config: valueFlag({ kind: "file", maxBytes: bytes(50) }) });
+  const x = parseFixture({ args: [arg("document", { kind: "file", maxBytes: bytes(10) })], flags: { note: stringFlag({ fileSource: { maxBytes: bytes(20) } }), raw: valueFlag({ kind: "file", maxBytes: bytes(30) }) }, payload: { maxBytes: bytes(40), examples: [{ payload: {}, why: "Example payload" }] } }, { args: { document: "doc.txt" }, file: "data.json" }, { config: valueFlag({ kind: "file", maxBytes: bytes(50) }) });
   const selected = ["argument", "note-file", "raw", "file", "config"];
   for (let i = 0; i < selected.length; i++) for (let j = i + 1; j < selected.length; j++) {
     const stdin = new Set([selected[i], selected[j]]);
@@ -428,7 +441,7 @@ test("invocations encode file alternatives, levels, repeated globals and validat
   const parsed = leaf(x.parse(output));
   assert.equal(parsed.input.level, "full"); assert.equal(parsed.input.out, "out.json");
   assert.deepEqual(parsed.input.globals.tag, ["first", "second"]);
-  const write = parseFixture({ effects: "write", payload: { maxBytes: bytes(30), validatePath: "items validate" } }, { file: "data.json" });
+  const write = parseFixture({ effects: "write", payload: { maxBytes: bytes(30), validatePath: "items validate", examples: [{ payload: {}, why: "Example payload" }] } }, { file: "data.json" });
   const validation = validationInvocation(write.command, { file: "data.json" });
   assert.equal(validation.effects, "read"); assert.equal(validation.path, "items validate");
   const tokens = shellTokens(renderInvocation(validation, "printf").replace(/^printf /, "printf '%s\\0' "));
@@ -491,7 +504,7 @@ test("detached reference validation covers files, compound selectors and twin me
   const ref = invocation(x.command, { args: { n: -2 }, flags: { "text-file": "doc.txt", tag: ["a", "b"] }, level: "full", out: "out.json" });
   assert.deepEqual(rebindInvocation(cliRegistry(x.cli), JSON.parse(JSON.stringify(ref))), ref);
   for (const data of [{ ...ref, flags: { full: true } }, { ...ref, flags: { tag: "a" } }, { ...ref, flags: { "text-file": "-", text: "inline" } }, { ...ref, args: ["1.5"] }]) assert.throws(() => rebindInvocation(cliRegistry(x.cli), data), TypeError);
-  const y = parseFixture({ effects: "write", payload: { maxBytes: bytes(30), validatePath: "items validate" } }, { file: "data.json" });
+  const y = parseFixture({ effects: "write", payload: { maxBytes: bytes(30), validatePath: "items validate", examples: [{ payload: {}, why: "Example payload" }] } }, { file: "data.json" });
   const twin = validationInvocation(y.command, { file: "data.json" });
   assert.deepEqual(rebindInvocation(cliRegistry(y.cli), JSON.parse(JSON.stringify(twin))), twin);
   assert.throws(() => rebindInvocation(cliRegistry(x.cli), twin), /target/i);
@@ -555,7 +568,7 @@ for (const variant of ["read", "write", "validation"]) {
   test(`${variant} references and rebinding preserve omitted/defaulted positional assignments`, async () => {
     const { invocationArgv } = await import("../dist/internal/invocations.js");
     const { rebindInvocation } = await import("../dist/internal/registry.js");
-    const extra = variant === "read" ? {} : { effects: "write", ...(variant === "validation" ? { payload: { maxBytes: bytes(100), validatePath: "items validate" } } : {}) };
+    const extra = variant === "read" ? {} : { effects: "write", ...(variant === "validation" ? { payload: { maxBytes: bytes(100), validatePath: "items validate", examples: [{ payload: {}, why: "Example payload" }] } } : {}) };
     const payload = variant === "validation" ? { file: "data.json" } : {};
     const x = parseFixture({ ...extra, args: [arg("n", { kind: "integer" }, { required: false }), arg("label", { kind: "string" }, { default: "all" })] }, payload);
     const construct = variant === "validation" ? validationInvocation : invocation;
@@ -570,7 +583,7 @@ for (const variant of ["read", "write", "validation"]) {
   });
 
   test(`${variant} references reject same-kind positional shifts into omitted slots`, () => {
-    const extra = variant === "read" ? {} : { effects: "write", ...(variant === "validation" ? { payload: { maxBytes: bytes(100), validatePath: "items validate" } } : {}) };
+    const extra = variant === "read" ? {} : { effects: "write", ...(variant === "validation" ? { payload: { maxBytes: bytes(100), validatePath: "items validate", examples: [{ payload: {}, why: "Example payload" }] } } : {}) };
     const payload = variant === "validation" ? { file: "data.json" } : {};
     const x = parseFixture({ ...extra, args: [arg("first", { kind: "string" }, { required: false }), arg("second", { kind: "string" }, { required: false }), arg("rest", { kind: "string" }, { variadic: true, required: false })] }, payload);
     const construct = variant === "validation" ? validationInvocation : invocation;

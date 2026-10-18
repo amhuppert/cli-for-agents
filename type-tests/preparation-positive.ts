@@ -17,13 +17,13 @@ accepts<Preparation<{ close(): void }>>({ ok: true, value: { close() {} }, previ
 accepts<Preparation<{ close(): void }>>({ ok: true, value: { close() {} }, preview: null });
 accepts<Preparation<void, "REFUSED">>({ ok: true, value: undefined, hint: hint(invocation(status, {}), "Inspect status before applying") });
 accepts<Preparation<void, "REFUSED">>({ ok: true, value: undefined, instruction: instruction("reviewer", "Confirm the planned changes") });
-const previewSpec = { path: "save", summary: "Save", description: "Save a payload", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(64), validatePath: "save-check" } } as const;
+const previewSpec = { path: "save", summary: "Save", description: "Save a payload", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(64), validatePath: "save-check", examples: [{ payload: {}, why: "Example payload" }] } } as const;
 family.defineCommand(previewSpec, { examples: [{ file: "input.json", why: "Save" }], handler: async () => ({ default: mutation<typeof previewSpec, undefined, Map<string, number>, typeof errors.definitions, {}, { readonly items: readonly number[] }, Counts>({
   decode: { "~standard": { version: 1, vendor: "fixture", validate: value => ({ value: value as { readonly items: readonly number[] } }) } },
   prepare: async ({ payload }) => ({ ok: true, value: new Map([["items", payload.items.length]]), preview: { records: payload.items.length, planned: ["insert"] } }),
   commit: async ({ prepared }) => ({ effect: "applied", recovery: recoveryFacts([{ kind: "save", id: String(prepared.value.get("items")) }]), result: { ok: true, data: {} } }),
 }) }) });
-family.defineCommand({ ...previewSpec, path: "store", payload: { maxBytes: bytes(64), validatePath: "store-check" } }, { examples: [{ file: "input.json", why: "Store" }], handler: async () => ({ default: mutation({
+family.defineCommand({ ...previewSpec, path: "store", payload: { maxBytes: bytes(64), validatePath: "store-check", examples: [{ payload: {}, why: "Example payload" }] } }, { examples: [{ file: "input.json", why: "Store" }], handler: async () => ({ default: mutation({
   decode: { "~standard": { version: 1, vendor: "fixture", validate: value => ({ value }) } },
   prepare: async () => ({ ok: true, value: new Set<string>(), preview: { records: 1 } }),
   commit: async () => ({ effect: "applied", recovery: recoveryFacts([{ kind: "store", id: "one" }]), result: { ok: true, data: {} } }),

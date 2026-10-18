@@ -1,5 +1,5 @@
 import type { RegistryNode } from "./registry.js";
-import { checkCaller, checkName, invalidInput, scalar } from "./input-model.js";
+import { checkCaller, invalidInput, isName, scalar } from "./input-model.js";
 import type { CheckedInput, FlagEntry } from "./input-model.js";
 
 /** json is the production selection. explicitJson is defined only for exactly one
@@ -76,9 +76,10 @@ export function parseTokens(nodes: Readonly<Record<string, RegistryNode>>, argv:
       if (node.kind === "command" || node.kind === "validation") positionals.push(token);
       else if (!node.path && (token === "version" || token === "exit-codes")) namedOffline = token;
       else {
-        checkName(token);
+        // A malformed token such as "ticket start" must never join a path; it is
+        // just another unknown command.
         const path = node.path ? `${node.path} ${token}` : token;
-        const child = nodes[path];
+        const child = isName(token) ? nodes[path] : undefined;
         if (!child) {
           const children = Object.values(nodes).filter(candidate => candidate.path && candidate.path.split(" ").slice(0, -1).join(" ") === node.path).map(candidate => candidate.path).sort();
           throw new TypeError(`Unknown command path. Use ${[nodes[""]!.summary, node.path, "--help"].filter(Boolean).join(" ")}. Commands: ${children.join(", ")}.`);

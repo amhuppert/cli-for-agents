@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { commandsFor, defineErrors, defineGroup, defineFlow, invocation, bytes } from 'cli-for-agents';
+import { commandsFor, defineErrors, defineGroup, defineFlow, invocation, bytes, mutation, payloadRead } from 'cli-for-agents';
+
+// Reference validation decodes payload examples, so payload handler modules load; their runners never run.
+const offlinePayload = (handler, validate = value => ({ value })) => async () => ({ default: mutation({ decode: { '~standard': { version: 1, vendor: 'fixture', validate } }, prepare: handler, commit: handler }) });
 import { createCli, helpNode, commandReference, validateReferences, renderInvocation } from 'cli-for-agents/runtime';
 import { createTestHost } from 'cli-for-agents/testing';
 import { cliRegistry, registryState, resolve } from '../dist/internal/registry.js';
@@ -11,7 +14,7 @@ function fixture(extra = {}) {
   const handler = async () => { throw Error('must remain offline'); };
   const doctor = family.defineCommand(spec('doctor'), { examples: [{ why: 'Diagnose' }], handler });
   const show = family.defineCommand(spec('items show', { dynamicHelp: true, args: [{ name: 'id', description: 'Item ID', value: { kind: 'string' } }], flags: { text: { description: 'Text', value: { kind: 'string' }, fileSource: { maxBytes: bytes(200) } } }, levels: { context: { output: 'bounded' }, full: { selectors: ['context', 'full'], output: 'artifact-eligible' } }, related: [{ path: 'doctor', description: 'Diagnose errors' }], skills: [{ path: 'guide.md', readWhen: 'Before use' }], sections: [{ kind: 'list', title: 'Safety', items: ['Inspect before changing.'] }] }), { examples: [{ args: { id: 'two words' }, level: 'full', why: 'Inspect all' }], handler });
-  const write = family.defineCommand(spec('items write', { effects: 'write', payload: { maxBytes: bytes(500), validatePath: 'items validate' } }), { examples: [{ file: 'payload.json', why: 'Apply payload' }], handler });
+  const write = family.defineCommand(spec('items write', { effects: 'write', payload: { maxBytes: bytes(500), validatePath: 'items validate', examples: [{ payload: { name: 'first', tags: ['a b'] }, why: 'Create one item' }] } }), { examples: [{ file: 'payload.json', why: 'Apply payload' }], handler: offlinePayload(handler) });
   const options = { name: 'tool', version: '1.2.3', family, commands: [doctor, show, write], groups: [defineGroup({ path: 'items', summary: 'Items', description: 'Manage items', dynamicHelp: true })], flows: [defineFlow({ id: 'inspect', steps: [{ command: doctor, description: 'Check access' }, { command: show, description: 'Inspect item' }] })], contexts: {}, doctor: invocation(doctor, {}), documentation: { directory: '/docs' }, output: { artifacts: { resolve() { throw Error('offline policy'); } } }, guidance: { load() { throw Error('offline rules'); }, conflictSink() {} }, ...extra };
   return { cli: createCli(options), options, show };
 }
@@ -41,6 +44,57 @@ test('offline hubs disclose direct children and leaves are self-contained struct
   assert.ok(helpNode(cli, 'items write').related.some(x => x.path === 'items validate'));
 });
 
+test('payload help shows the declared example file contents on the command and its twin', () => {
+  const { cli } = fixture();
+  for (const path of ['items write', 'items validate']) {
+    assert.deepEqual(helpNode(cli, path).payload.examples, [{ payload: { name: 'first', tags: ['a b'] }, why: 'Create one item' }]);
+    assert.match(commandReference(cli, { commands: [path] }), /Payload:\nStructured file or stdin \(-\), maximum 500 bytes\.\nExample: \{"name":"first","tags":\["a b"\]\} — Create one item\n/);
+  }
+});
+
+for (const [name, examples, error] of [
+  ['missing examples', undefined, /contract|example/i],
+  ['empty examples', [], /example/i],
+  ['an example without why', [{ payload: {} }], /contract/i],
+  ['an example with extra fields', [{ payload: {}, why: 'Create', file: 'x.json' }], /contract/i],
+  ['an example larger than the payload limit', [{ payload: 'x'.repeat(40), why: 'Create' }], /limit/i],
+  ['examples that together exceed the help bound', Array.from({ length: 300 }, () => ({ payload: 'x'.repeat(20), why: 'Create' })), /examples/i],
+]) test(`payload declarations refuse ${name}`, () => {
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
+  const payload = { maxBytes: bytes(32), validatePath: 'check', ...(examples ? { examples } : {}) };
+  assert.throws(() => family.defineCommand({ path: 'apply', summary: 'Apply', description: 'Apply a payload.', requires: 'none', effects: 'write', args: [], flags: {}, payload },
+    { examples: [{ file: 'p.json', why: 'Apply' }], handler: async () => { throw Error('offline'); } }), error);
+});
+
+function schemaFixture(schema) {
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
+  const handler = async () => { throw Error('help must not load handlers'); };
+  const base = { requires: 'none', effects: 'read', args: [], flags: {} };
+  const doctor = family.defineCommand({ ...base, path: 'doctor', summary: 'Diagnose', description: 'Diagnose' }, { examples: [{ why: 'Diagnose' }], handler });
+  const documents = family.defineCommand({ ...base, path: 'schema', summary: 'Show a payload schema', description: 'Print one payload JSON Schema.', args: [{ name: 'document', description: 'Document', value: { kind: 'enum', values: ['item', 'other'] } }] }, { examples: [{ args: { document: 'item' }, why: 'Read the item schema' }], handler });
+  const remove = family.defineCommand({ ...base, path: 'remove', summary: 'Remove', description: 'Remove one item.', effects: 'write' }, { examples: [{ why: 'Remove' }], handler });
+  const reference = typeof schema === 'function' ? schema({ documents, remove, doctor }) : schema;
+  const write = family.defineCommand({ ...base, path: 'write', summary: 'Write', description: 'Write one item.', effects: 'write', payload: { maxBytes: bytes(100), validatePath: 'check', examples: [{ payload: { name: 'a' }, why: 'Name it' }], ...(reference ? { schema: reference } : {}) } }, { examples: [{ file: 'item.json', why: 'Write' }], handler });
+  return createCli({ name: 'tool', version: '1', family, commands: [doctor, documents, remove, write], contexts: {}, doctor: invocation(doctor, {}), output: { artifacts: { directory: '/artifacts', forbiddenRoots: [] } } });
+}
+
+test('a payload schema reference names a member read and renders as a runnable command', () => {
+  const cli = schemaFixture(({ documents }) => invocation(documents, { args: { document: 'item' } }));
+  for (const path of ['write', 'check']) {
+    assert.deepEqual(helpNode(cli, path).payload.schema, { path: 'schema', effects: 'read', args: ['item'], flags: {} });
+    assert.match(commandReference(cli, { commands: [path] }), /\nExample: \{"name":"a"\} — Name it\nSchema: tool schema -- item\n/);
+  }
+  assert.equal(helpNode(schemaFixture(), 'write').payload.schema, undefined);
+});
+
+for (const [name, schema, error] of [
+  ['a write command', ({ remove }) => invocation(remove, {}), /schema/i],
+  ['a command outside the CLI', () => ({ path: 'absent', effects: 'read', args: [], flags: {} }), /schema/i],
+  ['inputs its target refuses', () => ({ path: 'schema', effects: 'read', args: ['third'], flags: {} }), /Payload schema invocation does not resolve to its registered target: Invalid argument <document>; expected one of "item", "other"\./],
+]) test(`a payload schema reference to ${name} is refused at registration`, () => {
+  assert.throws(() => schemaFixture(schema), error);
+});
+
 test('unknown help paths remain usage errors with a valid parent recovery', () => {
   const { cli } = fixture();
   assert.throws(() => helpNode(cli, 'items absent'), /tool items --help/);
@@ -55,11 +109,12 @@ test('reference text includes derived leaf details, examples, flows and catalog'
   assert.deepEqual(JSON.parse(JSON.stringify(helpNode(cli, 'items show'))).examples[0].invocation.args, ['two words']);
 });
 
-test('reference seam checks existing files and reports missing files without acquiring lazy application code', async () => {
+test('reference seam checks skill files and payload examples without running handlers or acquiring context', async () => {
   const { cli } = fixture();
   const signal = new AbortController().signal;
   const host = createTestHost({ files: { '/docs/guide.md': 'Guide' } });
-  assert.deepEqual(await validateReferences(cli, { host, signal }), { ok: true, checked: 1, issues: [] });
+  // One skill and one payload example: only the payload handler module loads, and none of its runners run.
+  assert.deepEqual(await validateReferences(cli, { host, signal }), { ok: true, checked: 2, issues: [] });
   const missing = await validateReferences(cli, { host: createTestHost({ files: { '/docs/other.md': '' } }), signal });
   assert.equal(missing.ok, false);
   assert.equal(missing.issues[0].code, 'missing_reference');
@@ -250,7 +305,7 @@ test('library reference writer uses the injected host and check never requests r
   const options = { path: '/reference.md', marker: 'COMMAND REFERENCE', mode: 'check', host: async () => { loads++; return host; }, signal: new AbortController().signal };
   const { cli } = fixture();
   const { sizes, ...checked } = await writeCommandReference(cli, options);
-  assert.deepEqual(checked, { ok: true, checked: 1, issues: [], changed: true });
+  assert.deepEqual(checked, { ok: true, checked: 2, issues: [], changed: true });
   assert.equal(sizes.documentBytes, Buffer.byteLength(markerDocument(commandReference(cli))));
   assert.equal(writes, 0);
   assert.equal(loads, 1);
@@ -392,7 +447,7 @@ for (const shape of ['scalar', 'optional', 'variadic']) test(`${shape} positiona
   const { options } = fixture();
   const values = ['draft', 'ready'];
   const command = options.family.defineCommand({ path: 'choose', summary: 'Choose', description: 'Choose states', requires: 'none', effects: 'write',
-    args: [{ name: 'state', description: 'State', value: { kind: 'enum', values }, ...(shape === 'optional' ? { required: false } : {}), ...(shape === 'variadic' ? { variadic: true } : {}) }], flags: {}, payload: { maxBytes: bytes(100), validatePath: 'check-choice' } },
+    args: [{ name: 'state', description: 'State', value: { kind: 'enum', values }, ...(shape === 'optional' ? { required: false } : {}), ...(shape === 'variadic' ? { variadic: true } : {}) }], flags: {}, payload: { maxBytes: bytes(100), validatePath: 'check-choice', examples: [{ payload: {}, why: 'Example payload' }] } },
   { examples: [{ args: { state: shape === 'variadic' ? ['draft'] : 'draft' }, file: 'payload.json', why: 'Choose a state' }], handler: async () => { throw Error('offline'); } });
   const cli = createCli({ ...options, commands: [...options.commands, command] });
   for (const path of ['choose', 'check-choice']) {
@@ -476,7 +531,7 @@ function selectionFixture(extra = {}) {
   const define = (spec, examples = [{ why: 'Use it' }]) => family.defineCommand({ requires: 'none', effects: 'read', args: [], flags: {}, ...spec }, { examples, handler });
   const doctor = define({ path: 'doctor', summary: 'Diagnose', description: 'Diagnose' });
   const show = define({ path: 'records show', summary: 'Show record', description: 'Read one record 😀.', related: [{ path: 'admin purge', description: 'Purge afterwards' }], skills: [{ path: 'show.md', readWhen: 'Before reading' }] });
-  const write = define({ path: 'records write', summary: 'Write record', description: 'Apply a record payload.', effects: 'write', payload: { maxBytes: bytes(64), validatePath: 'checks records' }, skills: [{ path: 'write.md', readWhen: 'Before writing' }] }, [{ file: 'record.json', why: 'Apply' }]);
+  const write = family.defineCommand({ requires: 'none', args: [], flags: {}, path: 'records write', summary: 'Write record', description: 'Apply a record payload.', effects: 'write', payload: { maxBytes: bytes(64), validatePath: 'checks records', examples: [{ payload: {}, why: 'Example payload' }] }, skills: [{ path: 'write.md', readWhen: 'Before writing' }] }, { examples: [{ file: 'record.json', why: 'Apply' }], handler: offlinePayload(handler) });
   const purge = define({ path: 'admin purge', summary: 'Purge', description: 'Remove stale records.', skills: [{ path: 'admin.md', readWhen: 'Before purging' }] });
   const groups = [
     defineGroup({ path: 'records', summary: 'Records', description: 'Record commands' }),
@@ -539,17 +594,72 @@ test('reference selection is deduplicated, stably ordered, empty-capable and str
   }
 });
 
-test('reference validation checks only skills of included nodes, counting a twin once', async () => {
+test('reference validation checks only skills and examples of included nodes, counting a twin once', async () => {
   const cli = selectionFixture();
   const signal = new AbortController().signal;
   const host = createTestHost({ files: { '/docs/admin.md': '', '/docs/admin-group.md': '', '/docs/write.md': '' } });
   assert.equal((await validateReferences(cli, { host, signal })).ok, false);
   assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['admin purge'] }), { ok: true, checked: 2, issues: [] });
-  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['checks records'] }), { ok: true, checked: 1, issues: [] });
-  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['records write', 'checks records'] }), { ok: true, checked: 1, issues: [] });
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['checks records'] }), { ok: true, checked: 2, issues: [] });
+  assert.deepEqual(await validateReferences(cli, { host, signal, commands: ['records write', 'checks records'] }), { ok: true, checked: 2, issues: [] });
   const missing = await validateReferences(cli, { host, signal, commands: ['records show'] });
   assert.deepEqual(missing.issues, [{ code: 'missing_reference', commandPath: 'records show', reference: 'show.md' }]);
   assert.deepEqual(await validateReferences(cli, { host, signal, commands: [] }), { ok: true, checked: 0, issues: [] });
+});
+
+function exampleFixture({ examples = [{ payload: { name: 'a' }, why: 'Name it' }], validate = value => typeof value?.name === 'string' ? { value } : { issues: [{ message: 'name is required', path: ['name'] }] } } = {}) {
+  const loads = []; const calls = [];
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
+  const offline = async () => { throw Error('only payload handlers load'); };
+  const base = { requires: 'none', args: [], flags: {} };
+  const decode = { '~standard': { version: 1, vendor: 'fixture', validate } };
+  const doctor = family.defineCommand({ ...base, effects: 'read', path: 'doctor', summary: 'Diagnose', description: 'Diagnose' }, { examples: [{ why: 'Diagnose' }], handler: offline });
+  const write = family.defineCommand({ ...base, effects: 'write', path: 'write', summary: 'Write', description: 'Write one item.', payload: { maxBytes: bytes(100), validatePath: 'check', examples } }, { examples: [{ file: 'item.json', why: 'Write' }],
+    handler: async () => { loads.push('write'); return { default: mutation({ decode, prepare: async () => { calls.push('prepare'); return { ok: true, value: {} }; }, commit: async () => { calls.push('commit'); return { effect: 'not_applied', result: { ok: false } }; } }) }; } });
+  const lookup = family.defineCommand({ ...base, effects: 'read', path: 'lookup', summary: 'Lookup', description: 'Look one item up.', payload: { maxBytes: bytes(100), examples: [{ payload: { name: 'b' }, why: 'Find it' }] } }, { examples: [{ file: 'item.json', why: 'Look up' }],
+    handler: async () => { loads.push('lookup'); return { default: payloadRead({ decode, run: async () => { calls.push('run'); return { ok: true, data: {} }; } }) }; } });
+  const cli = createCli({ name: 'tool', version: '1', family, commands: [doctor, write, lookup], contexts: {}, doctor: invocation(doctor, {}), output: { artifacts: { directory: '/artifacts', forbiddenRoots: [] } } });
+  return { cli, loads, calls };
+}
+const noHost = () => { throw Error('payload examples need no host'); };
+
+test('reference validation decodes every payload example through its lazy decoder without a host or a runner', async () => {
+  const x = exampleFixture();
+  const signal = new AbortController().signal;
+  assert.deepEqual(await validateReferences(x.cli, { host: noHost, signal }), { ok: true, checked: 2, issues: [] });
+  assert.deepEqual(x.loads, ['write', 'lookup']);
+  assert.deepEqual(x.calls, []);
+});
+
+test('an example its decoder refuses is a reference issue naming the command and the example index', async () => {
+  const x = exampleFixture({ examples: [{ payload: { name: 'a' }, why: 'Name it' }, { payload: { title: 'b' }, why: 'Title it' }] });
+  const signal = new AbortController().signal;
+  const result = await validateReferences(x.cli, { host: noHost, signal });
+  assert.deepEqual(result, { ok: false, checked: 3, issues: [{ code: 'invalid_payload_example', commandPath: 'write', reference: 'payload.examples[1]', issues: [{ code: 'schema', message: 'name is required', path: ['name'] }] }] });
+  assert.deepEqual(await validateReferences(x.cli, { host: noHost, signal, commands: ['check'] }), { ...result, checked: 2 });
+  assert.deepEqual(await validateReferences(x.cli, { host: noHost, signal, commands: ['write', 'check'] }), { ...result, checked: 2 });
+  x.loads.length = 0;
+  assert.deepEqual(await validateReferences(x.cli, { host: noHost, signal, commands: ['lookup'] }), { ok: true, checked: 1, issues: [] });
+  assert.deepEqual(x.loads, ['lookup']);
+  const writer = await writeCommandReference(x.cli, { path: '/reference.md', marker: 'COMMAND REFERENCE', mode: 'check', host: createTestHost(), signal });
+  assert.deepEqual(writer, { ...result, changed: false });
+});
+
+test('a throwing decoder is an invalid example; cancellation and an unloadable handler reject', async () => {
+  const signal = new AbortController().signal;
+  const throwing = exampleFixture({ validate: () => { throw new Error('decoder secret'); } });
+  const result = await validateReferences(throwing.cli, { host: noHost, signal, commands: ['write'] });
+  assert.deepEqual(result.issues, [{ code: 'invalid_payload_example', commandPath: 'write', reference: 'payload.examples[0]', issues: [{ code: 'decoder', message: 'The payload decoder threw Error instead of returning schema issues.' }] }]);
+  const malformed = await validateReferences(exampleFixture({ validate: () => ({}) }).cli, { host: noHost, signal, commands: ['write'] });
+  assert.deepEqual(malformed.issues, [{ code: 'invalid_payload_example', commandPath: 'write', reference: 'payload.examples[0]', issues: [{ code: 'decoder', message: 'The payload decoder returned a malformed result.' }] }]);
+  const controller = new AbortController();
+  const cancelled = exampleFixture({ validate: value => { controller.abort(); return { value }; } });
+  await assert.rejects(validateReferences(cancelled.cli, { host: noHost, signal: controller.signal }), { name: 'AbortError' });
+  assert.deepEqual(cancelled.loads, ['write'], 'no handler module loads after cancellation');
+  const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
+  const broken = family.defineCommand({ requires: 'none', effects: 'read', args: [], flags: {}, path: 'lookup', summary: 'Lookup', description: 'Look up.', payload: { maxBytes: bytes(100), examples: [{ payload: {}, why: 'Find' }] } }, { examples: [{ file: 'x.json', why: 'Find' }], handler: async () => { throw Error('cannot load'); } });
+  const cli = createCli({ name: 'tool', version: '1', family, commands: [broken], contexts: {}, doctor: { path: 'lookup', effects: 'read', args: [], flags: { file: 'x.json' } }, output: { artifacts: { directory: '/artifacts', forbiddenRoots: [] } } });
+  await assert.rejects(validateReferences(cli, { host: noHost, signal }), /cannot load/);
 });
 
 function sizedHost(document, files = {}) {

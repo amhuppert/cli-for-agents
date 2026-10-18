@@ -1,5 +1,5 @@
 import type { Brand } from "./internal/brand.js";
-import { assertIdentifier, assertNonnegativeInteger } from "./internal/validation.js";
+import { assertIdentifier, assertNonnegativeInteger, contractCheck } from "./internal/validation.js";
 
 /** JSON-safe application data. Runtime validation must still reject cycles and NaN. */
 export type JsonValue = null | boolean | number | string | readonly JsonValue[] | {
@@ -29,23 +29,20 @@ export type ArtifactPath = string & Brand<"ArtifactPath">;
 export type ShellSafe = string & Brand<"ShellSafe">;
 
 /** Validate a nonnegative safe integer; these units cannot substitute for each other. */
-export function bytes(value: number): Bytes {
+export function bytes(value: number): Bytes { return contractCheck(() => unit(value)) as Bytes; }
+export function count(value: number): Count { return contractCheck(() => unit(value)) as Count; }
+export function milliseconds(value: number): Milliseconds { return contractCheck(() => unit(value)) as Milliseconds; }
+function unit(value: number): number {
   assertNonnegativeInteger(value);
-  return (value === 0 ? 0 : value) as Bytes;
-}
-export function count(value: number): Count {
-  assertNonnegativeInteger(value);
-  return (value === 0 ? 0 : value) as Count;
-}
-export function milliseconds(value: number): Milliseconds {
-  assertNonnegativeInteger(value);
-  return (value === 0 ? 0 : value) as Milliseconds;
+  return value === 0 ? 0 : value;
 }
 /** Nonempty domain/text without whitespace or controls; application syntax is caller-owned. */
 export function id<const Domain extends string>(domain: Domain, value: string): Id<Domain> {
-  assertIdentifier(domain);
-  assertIdentifier(value);
-  return value as Id<Domain>;
+  return contractCheck(() => {
+    assertIdentifier(domain);
+    assertIdentifier(value);
+    return value as Id<Domain>;
+  });
 }
 
 /** Source-private ingress for host digests; no caller cast can mint a valid hash. */

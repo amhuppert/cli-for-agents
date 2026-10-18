@@ -4,7 +4,7 @@ const errors = defineErrors({});
 const family = commandsFor<{}>()({ errors, globalFlags: {} });
 const base = {
   path: "apply", requires: "none", effects: "write", summary: "Apply", description: "Apply",
-  args: [], flags: {}, payload: { maxBytes: bytes(100), validatePath: "validate" },
+  args: [], flags: {}, payload: { maxBytes: bytes(100), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] },
 } as const;
 // A parameter keeps the declared type from being narrowed to its initializer.
 export function widenedCredential(token: Flag) {

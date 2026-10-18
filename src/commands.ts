@@ -3,6 +3,7 @@ import type { Brand } from "./internal/brand.js";
 import { makeFamily, makeGroup, makeFlow } from "./internal/declarations.js";
 import { makePayloadModule, makeRenderedRunner } from "./internal/runner-modules.js";
 import { makeInvocation } from "./internal/invocations.js";
+import { contractCheck } from "./internal/validation.js";
 import type { AnyCommitReport, AnyResult, Effect, Preparation, Prepared, ErrorDefinitions, ErrorCatalog, FamilyCode, Result, CommitReport } from "./results.js";
 import type { Host, Environment, InputFileSource } from "./runtime/index.js";
 import type { JsonData, JsonValue, NonEmpty } from "./values.js";
@@ -202,7 +203,7 @@ type Suggestible<S extends CommandSpec, G extends Readonly<Record<string, Flag>>
 export function invocation<S extends CommandSpec, G extends Readonly<Record<string, Flag>>, const I extends object>(
   _command: Command<S, never, string, G>,
   _input: I & NoInfer<Suggestible<S, G>> & ExactInputs<NoInfer<I>, NoInfer<Suggestible<S, G>>>,
-): Invocation<S["effects"], S["path"]> { return makeInvocation(_command, _input, false) as Invocation<S["effects"], S["path"]>; }
+): Invocation<S["effects"], S["path"]> { return contractCheck(() => makeInvocation(_command, _input, false)) as Invocation<S["effects"], S["path"]>; }
 
 /** The derived validation route accepts the same file and options but cannot commit. */
 export function validationInvocation<
@@ -212,7 +213,7 @@ export function validationInvocation<
 >(
   _command: Command<S, never, string, G>,
   _input: I & NoInfer<Suggestible<S, G>> & ExactInputs<NoInfer<I>, NoInfer<Suggestible<S, G>>>,
-): Invocation<"read", S["payload"]["validatePath"]> { return makeInvocation(_command, _input, true) as Invocation<"read", S["payload"]["validatePath"]>; }
+): Invocation<"read", S["payload"]["validatePath"]> { return contractCheck(() => makeInvocation(_command, _input, true)) as Invocation<"read", S["payload"]["validatePath"]>; }
 
 /** Named guidance graph; execution state remains application-owned. */
 export type Flow = Brand<"Flow"> & { readonly id: string };

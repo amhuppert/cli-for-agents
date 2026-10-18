@@ -5,17 +5,19 @@ import type { EvaluatedGuidance } from "../guidance/index.js";
 import type { CapturedArtifactPolicy } from "./artifacts.js";
 import type { Flag } from "../input.js";
 import type { Sha256 } from "../values.js";
+import { checkedSha256 } from "../values.js";
 import type { Brand } from "./brand.js";
-import { commandErrors } from "./declarations.js";
+import { commandData, commandErrors } from "./declarations.js";
 import { executableRecord, primaryRenderer, selectRunner } from "./runner-modules.js";
 import { checkedResult, checkedWrite, observeWrite, checkedPreparation } from "./execution-reports.js";
-import { assertFields, frozenJson } from "./validation.js";
+import { assertFields, contractCheck, ContractError, frozenJson, thrownName } from "./validation.js";
 import type { AnyResult, OperationEffect, KernelCode } from "../results.js";
 import type { JsonValue } from "../values.js";
 import { resolveLocalInput } from "./local-input.js";
 import type { InputDiagnostic } from "./local-input.js";
-import { kernelError, kernelErrors, checkedError, unknownAcknowledgmentFact } from "../results.js";
+import { kernelError, kernelErrors, checkedError, protocolLimits, unknownAcknowledgmentFact } from "../results.js";
 import type { ParsedInvocation } from "./registry.js";
+import type { InputModel } from "./input-model.js";
 
 /** Only execution stamps this after validating module reports and run-scoped tokens. */
 export type ExecutionResult<Code extends string = string> = OperationOutcome<Code> & Brand<"ExecutionResult"> & {
@@ -57,9 +59,41 @@ export type CompletedExecution<Code extends string = string> = {
  * No hook or context acquisition is needed for local validation refusals (skipped).
  */
 
-class ContractFailure extends Error {}
-function failure(code: KernelCode, issues?: readonly Issue[], diagnostic?: InputDiagnostic): AnyResult {
-  return Object.freeze({ ok: false, error: kernelError(code, { message: kernelErrors[code].description, ...diagnostic, ...(issues ? { issues } : {}) }) });
+function failure(code: KernelCode, issues?: readonly Issue[], diagnostic?: InputDiagnostic, details?: JsonValue): AnyResult {
+  return Object.freeze({ ok: false, error: kernelError(code, { message: kernelErrors[code].description, ...diagnostic,
+    ...(issues ? { issues } : {}), ...(details ? { details } : {}) }) });
+}
+/** A caught error's class and single-line message, and those of its direct cause (Node's
+ * fetch reports the network error there), never a stack, so an operator can tell a defect
+ * from a transport failure. Handler and provider code is the author's own; the
+ * invocation's secret input values are still redacted before each message is cut to the
+ * diagnostic limit. */
+function thrownCause(error: unknown, secrets: readonly string[]): JsonValue | undefined {
+  const describe = (value: unknown, depth: number): JsonValue => {
+    if (!(value instanceof Error)) return { name: "non-Error value" };
+    const name = thrownName(value) ?? "Error";
+    let text = String(value.message);
+    for (const secret of [...secrets].sort((a, b) => b.length - a.length)) text = text.replaceAll(secret, "<redacted>");
+    text = text.replace(/[\p{Cc}\p{Cs}\p{Zl}\p{Zp}\s]+/gu, " ").trim();
+    // Every code unit costs at least one serialized byte, so a longer prefix cannot fit.
+    const limit = protocolLimits.diagnosticSummary;
+    const points = Array.from(text.slice(0, limit));
+    const cut = (count: number): string => points.slice(0, count).join("") + (count < points.length || text.length > limit ? "…" : "");
+    const fits = (count: number): boolean => new TextEncoder().encode(JSON.stringify(cut(count))).byteLength <= limit;
+    let low = 0; let high = points.length;
+    while (low < high) { const middle = Math.ceil((low + high) / 2); if (fits(middle)) low = middle; else high = middle - 1; }
+    const cause = depth === 0 && value.cause !== undefined ? { cause: describe(value.cause, 1) } : {};
+    return { name, ...(low > 0 ? { message: cut(low) } : {}), ...cause };
+  };
+  try { return { thrown: describe(error, 0) }; } catch { return undefined; }
+}
+/** Each secret text value as given and in the trimmed, whitespace-collapsed form a handler
+ * may interpolate (a credential file ends in a newline). */
+function secretValues(model: InputModel, values: readonly Readonly<Record<string, unknown>>[]): readonly string[] {
+  return Object.entries(model.flags).filter(([, entry]) => entry.definition.secret)
+    .flatMap(([name]) => values.flatMap(record => Object.hasOwn(record, name) ? [record[name]].flat() : []))
+    .filter((value): value is string => typeof value === "string")
+    .flatMap(value => [value, value.trim(), value.replace(/\s+/gu, " ").trim()]).filter(Boolean);
 }
 function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => "", offline = false): ExecutionResult {
   if (result.ok && operation.effect !== "read" && operation.effect !== "applied") throw new TypeError("Invalid successful effect.");
@@ -92,7 +126,10 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
   const errors = commandErrors(invocation.command);
   const local = await resolveLocalInput(invocation, request);
   const skipped = (result: AnyResult): CompletedExecution<FamilyCode<D>> => ({ execution: outcome(result, initial) as ExecutionResult<FamilyCode<D>>, secondary: [], postOperation: "skipped" });
-  if (!local.ok) return skipped(failure(local.code, local.issues, local.diagnostic));
+  const resolved = local.ok ? local.input : invocation.input;
+  const secrets = secretValues(commandData(invocation.command).model, [resolved.flags, resolved.globals]);
+  const caught = (code: KernelCode, error: unknown): AnyResult => failure(code, undefined, undefined, thrownCause(error, secrets));
+  if (!local.ok) return skipped(local.error === undefined ? failure(local.code, local.issues, local.diagnostic) : caught(local.code, local.error));
   let run: (input: unknown) => Promise<unknown>;
   let unknownEffect: Extract<OperationEffect, { effect: "unknown" }> | undefined;
   try {
@@ -101,7 +138,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       effect: "unknown", recovery: unknownAcknowledgment(invocation, local.input.payloadHash),
     };
   }
-  catch { return skipped(failure("KERNEL_CONTRACT")); }
+  catch (error) { return skipped(caught("KERNEL_CONTRACT", error)); }
   let release: (() => unknown) | undefined;
   let selected: SelectedContext<Contexts> = { requires: "none" };
   if (spec.requires !== "none") {
@@ -113,7 +150,9 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       if (typeof provider !== "function") return skipped(failure("KERNEL_CONTRACT"));
       recordTestEvent(request.signal, { type: "context.acquire", commandPath: spec.path });
       providerValue = await provider({ globals: local.input.globals, env: request.env, host: request.host, signal: request.signal });
-    } catch { return skipped(failure(request.signal.aborted ? "KERNEL_CANCELLED" : "KERNEL_CONTEXT")); }
+    } catch (error) {
+      return skipped(request.signal.aborted ? failure("KERNEL_CANCELLED") : caught("KERNEL_CONTEXT", error));
+    }
     try {
       if (providerValue === null || typeof providerValue !== "object") throw new TypeError("Invalid acquisition result.");
       const acquired = providerValue as { readonly ok?: unknown; readonly app?: unknown; readonly error?: unknown; readonly release?: unknown };
@@ -125,10 +164,10 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       if (finalize !== undefined && typeof finalize !== "function") throw new TypeError("Invalid finalizer.");
       selected = { requires: spec.requires as keyof Contexts & string,
         app: acquired.app as Contexts[keyof Contexts & string] } as SelectedContext<Contexts>;
-    } catch {
+    } catch (error) {
       const failures: SecondaryFailure[] = [];
       if (release) { try { recordTestEvent(request.signal, { type: "context.release", commandPath: spec.path }); await release(); } catch { failures.push(secondary("KERNEL_RELEASE")); } }
-      return { ...skipped(failure("KERNEL_CONTRACT")), secondary: Object.freeze(failures) };
+      return { ...skipped(caught("KERNEL_CONTRACT", error)), secondary: Object.freeze(failures) };
     }
   }
   let operation = initial;
@@ -147,9 +186,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
     if (writeReport) operation = unknownEffect!;
     let returned: unknown = await run(input);
     if (payloadMutation) {
-      let preparation;
-      try { preparation = checkedPreparation(returned, errors); }
-      catch { throw new ContractFailure(); }
+      const preparation = contractCheck(() => checkedPreparation(returned, errors));
       if (!preparation.ok) returned = preparation;
       else if (invocation.validation) {
         // The twin reports only framework-owned facts, the preview, and check guidance.
@@ -158,8 +195,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
           ...("preview" in preparation ? { preview } : {}) }, ...guidance };
       } else {
         request.signal.throwIfAborted();
-        const hash = local.input.payloadHash;
-        if (!hash) throw new ContractFailure();
+        const hash = contractCheck(() => checkedSha256(local.input.payloadHash));
         const prepared = Object.freeze({ value: preparation.value, payloadHash: hash });
         // The checked mutation wrapper retains the actual commit runner/renderer pairing.
         run = local.input.module["commit"] as (input: unknown) => Promise<unknown>;
@@ -176,8 +212,14 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
       } else result = checkedResult(returned, errors, spec.output === "binary");
       const data: JsonValue | undefined = result.ok && result.binary ? result.binary.summary : result.data;
       render = primaryRenderer(run, data);
-    } catch { result = failure("KERNEL_CONTRACT"); }
-  } catch (error) { result = failure(request.signal.aborted ? "KERNEL_CANCELLED" : error instanceof ContractFailure ? "KERNEL_CONTRACT" : "KERNEL_HANDLER"); }
+    } catch (error) { result = caught("KERNEL_CONTRACT", error); }
+  } catch (error) {
+    // A refusal from this library's own constructors is a program defect, not a lost
+    // outcome; either way the effect stays as observed, since only the app knows
+    // whether it dispatched.
+    result = request.signal.aborted ? failure("KERNEL_CANCELLED")
+      : caught(error instanceof ContractError ? "KERNEL_CONTRACT" : "KERNEL_HANDLER", error);
+  }
   const execution = outcome(result, operation, render) as ExecutionResult<FamilyCode<D>>;
   const failures: SecondaryFailure[] = [];
   let facts: PostOperationFacts | undefined;

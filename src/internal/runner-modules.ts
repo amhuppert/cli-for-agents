@@ -1,4 +1,7 @@
 import type { StandardSchema } from "../input.js";
+import type { Issue } from "../results.js";
+import { kernelError } from "../results.js";
+import { assertFields, assertNonnegativeInteger } from "./validation.js";
 
 /** Application modules are the author's own objects; copy their own fields as they are. */
 export function executableRecord(value: unknown): Record<string, unknown> {
@@ -32,6 +35,38 @@ export function makePayloadModule(handler: unknown, kind: "read" | "write"): obj
     validate: validate.bind(protocol) as StandardSchema<unknown>["~standard"]["validate"] }) });
   const module: LazyPayload = Object.freeze({ kind, decode, handler: Object.freeze(checked) });
   return module;
+}
+/** The default export of a command's lazy handler module. */
+export function defaultExport(loaded: unknown): unknown {
+  if (loaded === null || typeof loaded !== "object" || !("default" in loaded)) throw new TypeError("Expected a lazy module with a default export.");
+  return loaded.default;
+}
+/** Interpret a Standard Schema result: the decoded value, or its issues normalized and
+ * bounded by the error catalog. A result of any other shape is a TypeError. */
+export function schemaResult(result: unknown): { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly issues: readonly Issue[] } {
+  const checked = executableRecord(result);
+  if (checked["issues"] === undefined) {
+    assertFields(checked, ["value"], ["issues"]);
+    return { ok: true, value: checked["value"] };
+  }
+  assertFields(checked, ["issues"]);
+  const value = checked["issues"];
+  if (!Array.isArray(value) || !value.length) throw new TypeError("Expected schema issues.");
+  const issues = value.map(entry => {
+    const issue = executableRecord(entry);
+    if (typeof issue["message"] !== "string") throw new TypeError("Expected schema issue message.");
+    const path = issue["path"];
+    if (path !== undefined && !Array.isArray(path)) throw new TypeError("Expected schema issue path.");
+    const normalized = path?.map((part: unknown) => {
+      const key: unknown = typeof part === "object" && part !== null ? executableRecord(part)["key"] : part;
+      if (typeof key === "symbol") return String(key);
+      if (typeof key !== "string") assertNonnegativeInteger(key);
+      return key;
+    });
+    return { code: "schema", message: issue["message"], ...(normalized === undefined ? {} : { path: normalized }) };
+  });
+  // The catalog owner checks diagnostic bounds and normalized path shape.
+  return { ok: false, issues: kernelError("KERNEL_INPUT", { message: "Payload schema validation failed.", issues }).issues! };
 }
 export function payloadModule(token: unknown, kind: "read" | "write"): LazyPayload {
   if (token === null || typeof token !== "object" || !("kind" in token) || token.kind !== kind

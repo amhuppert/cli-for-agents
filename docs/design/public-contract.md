@@ -10,14 +10,14 @@ signatures are canonical; deep source/dist imports are not supported.
 
 ## Public boundary
 
-The package has four export paths, 39 function exports and two constant objects.
+The package has four export paths, 40 function exports and two constant objects.
 The [complete value/type/owner inventory](../implementation/api-inventory.md)
 is reconciled with built ESM. Private brands appear in declarations for checking,
 but their key and stamping mechanisms have no public export.
 
 | Import | Implemented values |
 | --- | --- |
-| `cli-for-agents` | `commandsFor`, `defineGroup`, `defineFlow`, `invocation`, `validationInvocation`, `runner`, `writeRunner`, `payloadRead`, `mutation`, `defineErrors`, `recoveryFacts`, `page`, `binaryArtifact`, `bytes`, `count`, `milliseconds`, `id`; constants `kernelErrors`, `protocolLimits` |
+| `cli-for-agents` | `commandsFor`, `defineGroup`, `defineFlow`, `invocation`, `validationInvocation`, `runner`, `writeRunner`, `payloadRead`, `mutation`, `defineErrors`, `recoveryFacts`, `page`, `elide`, `binaryArtifact`, `bytes`, `count`, `milliseconds`, `id`; constants `kernelErrors`, `protocolLimits` |
 | `cli-for-agents/runtime` | `createCli`, `runCli`, `main`, `nodeHost`, `helpNode`, `commandReference`, `validateReferences`, `writeCommandReference`, `decodeEnvelope`, `renderInvocation` |
 | `cli-for-agents/guidance` | `hint`, `instruction`, `defineReminderRule`, `defineSteering`, `evaluateGuidance` |
 | `cli-for-agents/testing` | `createTestHost`, `runForTest`, `contractTests`, `createContractFixtures`, `expectBounded`, `expectLazy`, `expectDisclosureParity` |
@@ -58,6 +58,14 @@ Caller inputs and handler inputs are distinct:
   flag can declare a bounded, exclusive `--name-file` alternative. Structured
   payload `--file` is a separate declaration. Multiple selected stdin consumers
   fail before reading; invalid input fails before application acquisition.
+- A payload declaration carries nonempty `examples: [{ payload, why }]`, the file
+  contents help prints as `Example: <compact JSON> — <why>` on the command and its
+  twin. Each example fits the payload's `maxBytes`, and a command's examples together
+  fit `protocolLimits.payloadExamples` (4,096 serialized bytes) so help stays inline.
+  An optional `schema: Invocation<"read">` names a read command of the same CLI that
+  prints the full schema document; help prints it as `Schema: <tool> <command>`, and
+  registration checks that it is a member read that parses as written. The schema is
+  an ordinary command, so it keeps lazy loading, bounded delivery and spill.
 - Level keys derive selectors. Explicit nonempty tuples support combinations such
   as `--context --full`. Selection requires a unique most-specific declared set;
   ties, incomparable matches and extra selector tokens fail. Domain filters remain
@@ -127,6 +135,24 @@ permits read/applied only. Applied writes carry bounded `recoveryFacts` containi
 app-reported IDs. An unacknowledged write gets unknown recovery identifying its
 registered command and, for payload writes, its hash; no durable ID is invented.
 Inspect doctor/continuation and saved state before repeating a mutation.
+
+An error caught from a handler, a runner check, a context provider or a handler module
+that cannot load carries `error.details.thrown: { name, message?, cause? }`: the
+error's class, its message
+on one line cut to 512 serialized bytes, and the same for its direct cause (Node's
+`fetch` puts the network error there); never a stack. The invocation's secret flag
+values, including resolved credentials and their trimmed forms, are replaced by
+`<redacted>`; other text in
+an application's exception message is printed, so do not put secrets in exception
+messages. Cancellation carries no cause, and secondary guidance, policy and release
+failures still never echo exception text. A public constructor that refuses its
+caller's value (`recoveryFacts`, `page`, `elide`, `binaryArtifact`, `bytes`, `count`,
+`milliseconds`, `id`, `invocation`, `validationInvocation`, a catalog's `error`, `hint`,
+`instruction`) throws a `TypeError` whose `name` is `ContractError`; one that
+escapes a handler is `KERNEL_CONTRACT` instead of `KERNEL_HANDLER`. Either way the
+effect stays as observed: once a write runner has started it is `unknown`, because
+only the application knows whether it dispatched, and a handler that knows it did not
+returns `not_applied`. Build recovery references before dispatching a write.
 
 `defineErrors` owns code/class/default refusal rationale. Connection failures
 centrally receive the registered read doctor; a continuation supplements it.
@@ -216,6 +242,13 @@ Wire decoding enforces the writer's media-type syntax and format/content
 correlation: binary format requires binary contents, and other formats cannot
 claim binary contents. Decoding does not grant filesystem authority.
 
+`elide(value, { maxBytes, reveal })` returns a detached frozen copy of a value whose
+serialized JSON fits `maxBytes`, or `{ elided: true, bytes, reveal }` with the measured
+size and a read invocation that returns the value, the per-field counterpart of a
+truncated page's `Omission`. Levels bound a whole command; `elide` names the one read
+that returns one large field. A text renderer prints the reveal itself, for example
+with `renderInvocation` and the CLI's own name.
+
 `binaryArtifact` snapshots finite `Uint8Array` bytes and carries separate JSON
 summary/media type/basename. It always uses the artifact writer. Automatic response
 spill contains JSON; explicit JSON `--out` can contain data only, as the manifest
@@ -236,15 +269,22 @@ Help/version/exit-codes and parse refusals import no handler or application
 transport and acquire no app. Optional help enrichment requires declaration opt-in,
 uses one total deadline (default 500 ms), at most three bounded blocks and a silent
 byte-identical static fallback. Dynamic providers must cooperate with cancellation.
-`helpNode` and `commandReference` are offline. Optional `CliOptions.description`
+`helpNode` and `commandReference` are offline. A route token that is not a valid
+command name, such as one argv token holding `ticket start`, is an unknown command
+path like any other: the refusal names the hub's help and lists its commands.
+Optional `CliOptions.description`
 is the root help/reference prose; text prints the summary once and omits a description
 that is empty or equal to it. `commandReference(cli, { commands })` documents the
 selected command or validation leaves, a selected write's generated twin, their
 ancestors and the root, with child navigation filtered to documented nodes; related
 links may point outside the selection. Roots, groups and unknown paths throw.
 Asynchronous `validateReferences` and `writeCommandReference` accept the same
-selection, check actual files and canonical containment for included nodes' skills
-only, and named-block check mode does not write. The writer reports UTF-8 `sizes`
+selection, check actual files and canonical containment for included nodes' skills,
+and decode each included payload command's examples through its lazy decoder: that
+loads the payload handler module but runs no runner, acquires no context and needs no
+host. A refused example is an `invalid_payload_example` issue whose `reference` is
+`payload.examples[<index>]` and whose `issues` are the decoder's; a handler module
+that cannot load rejects the call. Named-block check mode does not write. The writer reports UTF-8 `sizes`
 (generated block, whole document, limit) after successful validation and refuses a
 document over `maxBytes` with those counts instead of trimming.
 

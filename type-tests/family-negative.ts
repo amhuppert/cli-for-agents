@@ -1,5 +1,5 @@
 /** Each rejected boundary has a corresponding valid shape in family-positive. */
-import { commandsFor, defineErrors, bytes, invocation, mutation, type ReadHandler, type HandlerInput, type Preparation, type AnyCommitReport, type FamilyCode, type ErrorCatalog, type ErrorDefinitions } from "cli-for-agents";
+import { commandsFor, defineErrors, bytes, elide, invocation, mutation, type Invocation, type PayloadDeclaration, type ReadHandler, type HandlerInput, type Preparation, type AnyCommitReport, type FamilyCode, type ErrorCatalog, type ErrorDefinitions } from "cli-for-agents";
 import { createCli, type ContextProviders } from "cli-for-agents/runtime";
 import { family, errors, globalFlags, spec, handler, command, noneSpec, providers, optionalContextOptions, type Contexts, type OptionalContexts } from "./family-positive.js";
 declare function accepts<T>(value: T): void;
@@ -57,7 +57,7 @@ createCli({ ...options, errors: foreign });
 accepts<Preparation<string, FamilyCode<typeof errors.definitions>>>({ ok: false, error: foreignError });
 // @ts-expect-error Commit failures retain the family's bounded domain codes.
 accepts<AnyCommitReport<FamilyCode<typeof errors.definitions>>>({ effect: "not_applied", result: { ok: false, error: foreignError } });
-const write = { ...spec, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate" } } as const;
+const write = { ...spec, path: "apply", effects: "write", payload: { maxBytes: bytes(100), validatePath: "validate", examples: [{ payload: {}, why: "Example payload" }] } } as const;
 const foreignMutation = mutation<typeof write, Contexts["remote"], string, typeof foreign.definitions, typeof globalFlags>({
   decode: { "~standard": { version: 1, vendor: "fixture", validate: () => { throw new Error("Compile-only decoder"); } } },
   prepare: async () => ({ ok: false, error: foreignError }),
@@ -107,3 +107,12 @@ accepts<ContractFixtures>({});
 declare const textCapture: Extract<TestRunResult, { readonly format: "text" }>;
 // @ts-expect-error A text run does not expose a JSON envelope.
 accepts<import("cli-for-agents").AnyEnvelope>(textCapture.envelope);
+declare const writeInvocation: Invocation<"write">;
+// @ts-expect-error A payload declaration shows at least one example of its file.
+accepts<PayloadDeclaration>({ maxBytes: bytes(100) });
+// @ts-expect-error Payload examples are nonempty.
+accepts<PayloadDeclaration>({ maxBytes: bytes(100), examples: [] });
+// @ts-expect-error A payload schema reference names a read.
+accepts<PayloadDeclaration>({ maxBytes: bytes(100), examples: [{ payload: {}, why: "Apply" }], schema: writeInvocation });
+// @ts-expect-error An elided value is revealed only by a read.
+elide("text", { maxBytes: bytes(1), reveal: writeInvocation });

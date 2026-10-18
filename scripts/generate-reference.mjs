@@ -20,7 +20,7 @@ try {
   const result = await writeCommandReference(cli, { path: values.file, marker: values.marker, mode: values.check ? 'check' : 'write', maxBytes: bytes(Number(values['max-bytes'])),
     ...(values.command ? { commands: values.command } : {}), signal: new AbortController().signal });
   if (!result.ok) {
-    process.stderr.write(result.issues.map(issue => `${issue.code}: ${issue.commandPath}: ${issue.reference}`).join('\n') + '\n');
+    process.stderr.write(result.issues.map(issue => `${issue.code}: ${issue.commandPath}: ${issue.reference}${issue.issues ? ` (${issue.issues.map(found => found.message).join('; ')})` : ''}`).join('\n') + '\n');
     process.exitCode = 1;
   } else if (values.check && result.changed) {
     process.stderr.write(`Reference drift: ${values.file}; regenerate without --check.\n`);

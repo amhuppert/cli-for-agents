@@ -29,11 +29,11 @@ accepts<StandardSchema<{ count: number }>>(z.object({ count: z.string().transfor
 accepts<StandardSchema<Unit>>(unit.refine(async value => value.unit.length > 0));
 
 const family = commandsFor()({ errors: defineErrors({}), globalFlags: {} });
-const readSpec = { path: "units check", summary: "Check units", description: "Check a unit payload.", requires: "none", effects: "read", args: [], flags: {}, payload: { maxBytes: bytes(1024) } } as const satisfies CommandSpec;
+const readSpec = { path: "units check", summary: "Check units", description: "Check a unit payload.", requires: "none", effects: "read", args: [], flags: {}, payload: { maxBytes: bytes(1024), examples: [{ payload: {}, why: "Example payload" }] } } as const satisfies CommandSpec;
 family.defineCommand(readSpec, { examples: [{ file: "unit.json", why: "Check a unit" }], handler: async () => ({ default: payloadRead({
   decode: unit, run: async ({ payload }) => ({ ok: true, data: { unit: payload.unit } }),
 }) }) });
-const writeSpec = { path: "units save", summary: "Save units", description: "Save a unit payload.", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(1024), validatePath: "units save-check" } } as const satisfies CommandSpec;
+const writeSpec = { path: "units save", summary: "Save units", description: "Save a unit payload.", requires: "none", effects: "write", args: [], flags: {}, payload: { maxBytes: bytes(1024), validatePath: "units save-check", examples: [{ payload: {}, why: "Example payload" }] } } as const satisfies CommandSpec;
 family.defineCommand(writeSpec, { examples: [{ file: "unit.json", why: "Save a unit" }], handler: async () => ({ default: mutation({
   decode: unit, prepare: async ({ payload }) => ({ ok: true, value: payload.unit }),
   commit: async ({ prepared }) => ({ effect: "applied", recovery: recoveryFacts([{ kind: "unit", id: prepared.value }]), result: { ok: true, data: {} } }),

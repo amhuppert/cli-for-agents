@@ -64,7 +64,11 @@ export function observeWrite(value: Readonly<Record<string, unknown>>, fallback:
 export function checkedWrite(value: Readonly<Record<string, unknown>>, operation: OperationEffect, errors: ErrorCatalog<ErrorDefinitions>, binary: boolean): AnyResult {
   assertFields(value, ["effect", "result"], value["effect"] === "not_applied" ? [] : ["recovery"]);
   if (value["effect"] !== operation.effect || operation.effect === "read"
-    || operation.effect !== "not_applied" && operation.recovery.kind !== "reported") throw new TypeError("Invalid write effect.");
+    || operation.effect !== "not_applied" && operation.recovery.kind !== "reported") {
+    // observeWrite falls back when the reported recovery is refused; name that refusal.
+    if (value["effect"] === "applied" || value["effect"] === "unknown") reported(value["recovery"]);
+    throw new TypeError("Invalid write effect.");
+  }
   const result = checkedResult(value["result"], errors, binary);
   if (result.ok && operation.effect !== "applied") throw new TypeError("Unapplied writes cannot succeed.");
   return result;

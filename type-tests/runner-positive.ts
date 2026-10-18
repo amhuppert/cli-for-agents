@@ -19,7 +19,7 @@ family.defineCommand(scalar, { examples: [{ why: "Write" }], handler: async () =
 } }) });
 interface Payload { readonly name: string }
 export const schema: StandardSchema<Payload> = { "~standard": { version: 1, vendor: "fixture", validate: () => ({ value: { name: "validated" } }) } };
-export const payloadSpec = { ...readSpec, path: "query", payload: { maxBytes: bytes(1024) } } as const;
+export const payloadSpec = { ...readSpec, path: "query", payload: { maxBytes: bytes(1024), examples: [{ payload: {}, why: "Example payload" }] } } as const;
 type Query = PayloadHandlerInput<typeof payloadSpec, never, Payload, {}>;
 export const query = payloadRead<typeof payloadSpec, never, Payload, {}>({
   decode: schema,
@@ -27,7 +27,7 @@ export const query = payloadRead<typeof payloadSpec, never, Payload, {}>({
   levels: { full: async ({ payload }) => ({ ok: true, data: { names: [payload.name] } }) },
 });
 export const payloadCommand = family.defineCommand(payloadSpec, { examples: [{ why: "Query", file: "-" }], handler: async () => ({ default: query }) });
-export const mutationSpec = { ...scalar, payload: { maxBytes: bytes(1024), validatePath: "validate write" } } as const;
+export const mutationSpec = { ...scalar, payload: { maxBytes: bytes(1024), validatePath: "validate write", examples: [{ payload: {}, why: "Example payload" }] } } as const;
 export const mutator = mutation<typeof mutationSpec, never, string, {}, {}, Payload>({
   decode: schema,
   prepare: async ({ payload }) => ({ ok: true, value: payload.name }),

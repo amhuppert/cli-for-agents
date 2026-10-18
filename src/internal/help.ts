@@ -89,7 +89,9 @@ export function renderHelp<Contexts>(cli: Cli<Contexts>, path: string, documente
   if (path) lines.push("", `Global flags: ${name} --help`);
   section("Flags", node.flags.filter(flag => !sharedNames.has(flag.name)).map(flag => `--${flag.name}${flag.valuePlaceholder ? ` ${flag.valuePlaceholder}` : ""} — ${flag.description} [${flag.source}; ${describeValue(flag.value)}${flag.fileAlternative ? `; alternative: --${flag.fileAlternative.name}, max ${flag.fileAlternative.maxBytes} bytes, exclusive with --${flag.name}` : ""}${flag.credentialEnv ? `; credential fallback: env ${flag.credentialEnv}` : ""}${flag.required ? "; required" : ""}${flag.repeatable ? "; repeatable" : ""}${flag.default !== undefined ? `; default: ${JSON.stringify(flag.default)}` : ""}]`));
   section("Levels", Object.entries(node.levels ?? {}).map(([level, value]) => `${level}: ${value.selectors.map(s => `--${s}`).join(" ")} (${value.output})`));
-  if (node.payload) section("Payload", [`Structured file or stdin (-), maximum ${node.payload.maxBytes} bytes.`]);
+  if (node.payload) section("Payload", [`Structured file or stdin (-), maximum ${node.payload.maxBytes} bytes.`,
+    ...node.payload.examples.map(example => `Example: ${JSON.stringify(example.payload)} — ${example.why}`),
+    ...(node.payload.schema ? [`Schema: ${renderReference(node.payload.schema, name)}`] : [])]);
   if (node.output) section("Output", [node.output]);
   section("Examples", node.examples.map(example => `${example.invocation ? renderReference(example.invocation, name) : `Template (supply actual inputs): ${JSON.stringify(example.template)}`} — ${example.why}`));
   for (const entry of node.sections) section(entry.title, entry.kind === "list" ? entry.items.map(item => `- ${item}`) : entry.paragraphs);

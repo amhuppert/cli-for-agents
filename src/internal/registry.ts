@@ -75,16 +75,25 @@ export function register<Contexts, D extends ErrorDefinitions, G extends Readonl
     for (const step of flowSteps(flow)) if (!tokens.has(step.command)) throw new TypeError("Flow references nonmember command.");
   }
   if (!options.doctor || typeof options.doctor !== "object") throw new TypeError("Missing runnable read doctor invocation.");
-  assertInvocation(options.doctor);
-  if (options.doctor.effects !== "read" || !nodes[options.doctor.path]?.command) throw new TypeError("Doctor must be a member read invocation.");
-  const parsedDoctor = parseTokens(nodes, invocationArgv(options.doctor));
-  if (parsedDoctor.kind !== "leaf" || parsedDoctor.node !== nodes[options.doctor.path]) {
-    throw new TypeError("Doctor invocation does not resolve to its registered target.");
-  }
+  checkReadReference(nodes, options.doctor, "Doctor");
   assertSerializedLimit({ doctor: options.doctor }, protocolLimits.references);
+  for (const node of Object.values(nodes)) {
+    const schema = node.kind === "command" ? node.model!.spec.payload?.schema : undefined;
+    if (schema) checkReadReference(nodes, schema, "Payload schema");
+  }
   const registry = Object.freeze({}) as Registry<Contexts, FamilyCode<D>, G>;
   registryStates.set(registry, Object.freeze({ name: options.name, version: options.version, nodes: Object.freeze(nodes), tokens }));
   return registry;
+}
+/** A declared read reference must name a member read and parse to it exactly as written. */
+function checkReadReference(nodes: Readonly<Record<string, RegistryNode>>, reference: import("../commands.js").Invocation, label: string): void {
+  assertInvocation(reference);
+  if (reference.effects !== "read" || !nodes[reference.path]?.command) throw new TypeError(`${label} must be a member read invocation.`);
+  const unresolved = `${label} invocation does not resolve to its registered target`;
+  let parsed: ReturnType<typeof parseTokens>;
+  try { parsed = parseTokens(nodes, invocationArgv(reference)); }
+  catch (error) { throw error instanceof TypeError ? new TypeError(`${unresolved}: ${error.message}`) : error; }
+  if (parsed.kind !== "leaf" || parsed.node !== nodes[reference.path]) throw new TypeError(`${unresolved}.`);
 }
 export function resolve<Contexts, Code extends string, G extends Readonly<Record<string, Flag>>>(
   registry: Registry<Contexts, Code, G>, argv: readonly string[],

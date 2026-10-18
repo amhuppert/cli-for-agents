@@ -191,7 +191,7 @@ export type HelpNode = {
   readonly dynamicHelp: boolean;
   readonly effects?: "read" | "write";
   readonly levels?: Readonly<Record<string, { readonly selectors: readonly string[]; readonly output: "bounded" | "artifact-eligible" }>>;
-  readonly payload?: { readonly maxBytes: Bytes; readonly validatePath?: string };
+  readonly payload?: { readonly maxBytes: Bytes; readonly validatePath?: string; readonly examples: NonEmpty<import("../input.js").PayloadExample>; readonly schema?: Invocation<"read"> };
   readonly output?: "binary";
   readonly flows: readonly { readonly id: string; readonly steps: readonly { readonly path: string; readonly description: string }[] }[];
 };
@@ -202,9 +202,12 @@ export function helpNode<Contexts>(_cli: Cli<Contexts>, _path: string): HelpNode
 export type ReferenceSelection = { readonly commands?: readonly string[] };
 export function commandReference<Contexts>(_cli: Cli<Contexts>, _selection?: ReferenceSelection): string { return renderCommandReference(_cli, _selection); }
 export type ReferenceIssue = {
-  readonly code: "missing_documentation_root" | "missing_reference" | "outside_documentation_root" | "invalid_reference";
+  readonly code: "missing_documentation_root" | "missing_reference" | "outside_documentation_root" | "invalid_reference" | "invalid_payload_example";
   readonly commandPath: string;
+  /** A skill path, or payload.examples[<index>] for a payload example. */
   readonly reference: string;
+  /** Why the decoder refused an invalid payload example. */
+  readonly issues?: readonly import("../results.js").Issue[];
 };
 export type ReferenceValidation =
   | { readonly ok: true; readonly checked: number; readonly issues: readonly [] }
@@ -223,8 +226,11 @@ export type ReferenceOptions = ReferenceSelection & {
   readonly host?: ReferenceHost | (() => Promise<ReferenceHost>);
   readonly signal: AbortSignal;
 };
-/** Checks actual files and symlink-resolved containment within cli.documentation,
- * for the skills of selected nodes only; a selected twin checks its command's skills. */
+/** Checks actual files and symlink-resolved containment within cli.documentation for the
+ * skills of selected nodes, and decodes each selected payload command's examples with its
+ * lazy decoder, which loads that handler module (no runner runs, no context is acquired).
+ * A selected twin checks its command's skills and examples. A handler module that cannot
+ * load rejects; the host is acquired only when there are skills to check. */
 export function validateReferences<Contexts>(_cli: Cli<Contexts>, _options: ReferenceOptions): Promise<ReferenceValidation> { return checkReferences(_cli, _options); }
 /** UTF-8 sizes after marker replacement: the inserted block with its final newline but
  * without marker lines, the whole candidate document, and the enforced limit. Present in

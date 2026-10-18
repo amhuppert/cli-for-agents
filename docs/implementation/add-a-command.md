@@ -60,8 +60,14 @@ from the spec; no second parser table is needed.
 | --- | --- | --- |
 | Plain read | `effects: 'read'` | `ReadHandler` with `run` and any declared level runners |
 | Scalar write | `effects: 'write'`, no payload | `WriteHandler` with `run` returning a commit report |
-| Structured read | Read plus `payload: { maxBytes }` | `payloadRead({ decode, run })`; no validation twin |
-| Structured write | Write plus `payload: { maxBytes, validatePath }` | `mutation({ decode, prepare, commit })`; generated twin runs decode/prepare |
+| Structured read | Read plus `payload: { maxBytes, examples }` | `payloadRead({ decode, run })`; no validation twin |
+| Structured write | Write plus `payload: { maxBytes, validatePath, examples }` | `mutation({ decode, prepare, commit })`; generated twin runs decode/prepare |
+
+A payload's `examples` are file contents with a reason, printed in help as
+`Example: <compact JSON> — <why>`; `validateReferences` decodes each one with the
+command's decoder, so an example cannot drift from the schema. Add
+`schema: invocation(<read>, {...})` when a read command prints the full schema
+document; help then names it as `Schema: <tool> <command>`.
 
 ### Plain read
 
@@ -103,7 +109,10 @@ return {
 Import `recoveryFacts` from the root package. Return `not_applied` with a failure
 when refusing before the write. Report only IDs the application actually knows.
 Use `writeRunner` for a typed primary renderer. A thrown/unacknowledged mutation
-gets bounded unknown-acknowledgment recovery; inspect state before retrying.
+gets bounded unknown-acknowledgment recovery and names the thrown class and message
+in `error.details.thrown`; inspect state before retrying. Build recovery references
+before dispatching: a `recoveryFacts` refusal is reported as `KERNEL_CONTRACT`, but
+once the runner has started the effect is still `unknown`.
 
 ### Structured read
 

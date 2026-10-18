@@ -44,6 +44,17 @@ test('remote fixture has context-free diagnostics and production paged reads', a
   assert.equal(x.service.requests[0].workspace, 'selected');
   assert.equal(x.service.requests[0].authorized, true);
 });
+test('remote fixture help shows a decodable payload example and points at its schema read', async t => {
+  const x = await fixture(t);
+  const help = await x.run(['apply', '--help']);
+  assert.equal(help.exitCode, 0, help.stdout + help.stderr);
+  assert.match(help.stdout, /\nPayload:\nStructured file or stdin \(-\), maximum 4096 bytes\.\nExample: \{"name":"first item"\} — Create one named item\nSchema: remote-service schema\n/);
+  const { validateReferences } = await import('cli-for-agents/runtime');
+  const { createRemoteCli } = await import('../../examples/remote-service/commands.mjs');
+  const checked = await validateReferences(createRemoteCli({ directory: x.directory }), { host: () => { throw Error('no skills to check'); }, signal: new AbortController().signal });
+  assert.deepEqual(checked, { ok: true, checked: 1, issues: [] });
+  assert.equal(x.service.requests.length, 0);
+});
 test('remote fixture validates, commits once, shows detail and resumes a bounded wait', async t => {
   const x = await fixture(t);
   const input = join(x.directory, 'input.json');

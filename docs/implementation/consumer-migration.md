@@ -1,8 +1,9 @@
-# Consumer migration guide: after cli-for-agents#3
+# Consumer migration guide: after cli-for-agents#3 and #4
 
 This guide is for projects that consume cli-for-agents through a private yalc
 snapshot. It covers the snapshot that follows `7fd35c1` (the book-ingest
-retrospective, ticket cli-for-agents#3). Each section states what breaks, what
+retrospective, ticket cli-for-agents#3) and, in [its own section](#after-cli-for-agents4),
+the workflow-audit retrospective (ticket cli-for-agents#4). Each section states what breaks, what
 you must change, and what the change lets you delete. Source signatures in `src/`
 are canonical; the [public contract](../design/public-contract.md) describes them.
 
@@ -32,7 +33,43 @@ Keep `--scripts` on publication and do not use bare `yalc push`; it defaults
 scripts off and would copy whatever `dist` happens to exist. yalc 1.0.0-pre.53 is
 the tested version.
 
-## Breaking changes
+## After cli-for-agents#4
+
+### Breaking changes
+
+1. **Payload declarations need examples.** `payload` requires nonempty
+   `examples: [{ payload, why }]` (a compile error until added). Each example must
+   fit the payload's `maxBytes`, and one command's examples together must fit 4,096
+   serialized bytes. Write the smallest file that shows each distinct shape: for
+   Command Center's `run launch`, a brief-only file and one with reviewers and
+   `modelSelection`, so an agent no longer has to read source to learn the fields.
+2. **`validateReferences` and `writeCommandReference` decode those examples.** They
+   load each selected payload command's handler module and call only its decoder. A
+   reference fixture whose payload handler throws must now return a real
+   `payloadRead` or `mutation` module (its runners can still throw), and a stale
+   example fails reference generation as `invalid_payload_example`.
+3. **Caught errors carry their cause, and library refusals are contract failures.**
+   A handler or provider throw now has `error.details.thrown: { name, message?, cause? }`
+   with the invocation's secret values redacted; tests that asserted a handler's
+   exception text never appears must assert the new detail instead. A refusal from a
+   library constructor such as `recoveryFacts` is a `TypeError` named
+   `ContractError` (same message) and, escaping a handler, `KERNEL_CONTRACT`
+   rather than `KERNEL_HANDLER`; the effect stays `unknown` once a write started.
+4. **A malformed command token is an unknown command.** `cctl 'ticket start' --help`
+   now prints the unknown-path refusal with the root's commands instead of
+   `Invalid name spelling.`
+
+### What you can use
+
+- `payload.schema: invocation(<read command>, {...})` puts `Schema: <tool> ...` in the
+  Payload section. Command Center's spec writes can point at `spec schema <document>`;
+  run payloads need a read that prints their schema (for example from
+  `z.toJSONSchema(workflowLaunchRequestSchema)` plus prose notes).
+- `elide(value, { maxBytes, reveal })` replaces one oversized field, such as a
+  context's structured result in `run show`, with `{ elided: true, bytes, reveal }`
+  once that command has a scoped read to reveal into.
+
+## Breaking changes from cli-for-agents#3
 
 Run the consumer's typecheck first. Items 1 and 2 are compile errors; the rest
 change runtime output or test behavior and show up in the consumer's tests.
@@ -246,6 +283,8 @@ values cannot find a text-only fact; assert prose-only facts directly.
 | book-ingest `src/cli/guidance.ts` | Remove validate-clean-submit only after generated hint tests prove file/global selection survives; retain rolled-back-write retry guidance. |
 | book-ingest `src/instructions/references.ts` and surface matrix | Generate selected references from the real CLI; use size reports and actionable parity errors; test final instructions output against its own 16384-byte budget. |
 | Command Center CLI integration | Update any structural Host implementations and duplicated envelope validators/types for spill metadata; remove artifact-only directory setup, verify resolver cleanup ordering, and retain cctl's application-specific approval/preflight rules and guidance. |
+| Command Center payload commands (#4) | Add examples to its ~15 payload declarations; point spec writes at `spec schema`; add a schema read for run payloads; make reference fixtures load real payload modules; update tests that expected `KERNEL_HANDLER` for a library refusal or no handler message. |
+| book-ingest payload commands (#4) | Add examples to `start` and `submit` payloads; update reference fixtures and no-echo handler assertions the same way. |
 
 After migrating, run the consumer's registered typecheck and test gates. Do not
 infer a consumer's migration from this repository's tests.

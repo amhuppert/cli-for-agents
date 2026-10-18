@@ -1,7 +1,7 @@
 /** Draft public surface for review; source-file deep imports are not supported. */
 export { bytes, count, id, milliseconds } from "./values.js";
 export type { ArtifactPath, Bytes, Count, Id, JsonData, JsonValue, Milliseconds, NonEmpty, Sha256, ShellSafe } from "./values.js";
-export type { Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, ValueKind } from "./input.js";
+export type { Argument, CallerInputs, ParsedInputs, ParsedFlags, ExampleInputs, Flag, InputSpec, Inputs, PayloadDeclaration, PayloadExample, MutationPayloadDeclaration, StandardSchema, ValueKind } from "./input.js";
 export { commandsFor, defineFlow, defineGroup, invocation, mutation, payloadRead, runner, writeRunner, validationInvocation } from "./commands.js";
 export type {
   Command, CommandBuilder, CommandFamily, CommandExample, CommandSpec, DisclosureLevel, Flow, Group, HelpSection,
@@ -15,5 +15,5 @@ export type {
   ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure,
   Preparation, Prepared, Result, Success,
 } from "./results.js";
-export { page, binaryArtifact } from "./disclosure.js";
-export type { AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, ResolvedArtifactPolicy, Omission, Page, Payload, Total } from "./disclosure.js";
+export { page, elide, binaryArtifact } from "./disclosure.js";
+export type { AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, Elision, ResolvedArtifactPolicy, Omission, Page, Payload, Total } from "./disclosure.js";
