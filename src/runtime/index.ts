@@ -191,7 +191,7 @@ export type HelpNode = {
   readonly dynamicHelp: boolean;
   readonly effects?: "read" | "write";
   readonly levels?: Readonly<Record<string, { readonly selectors: readonly string[]; readonly output: "bounded" | "artifact-eligible" }>>;
-  readonly payload?: { readonly maxBytes: Bytes; readonly validatePath?: string; readonly examples: NonEmpty<import("../input.js").PayloadExample>; readonly schema?: Invocation<"read"> };
+  readonly payload?: import("../input.js").PayloadDeclaration & { readonly validatePath?: string };
   readonly output?: "binary";
   readonly flows: readonly { readonly id: string; readonly steps: readonly { readonly path: string; readonly description: string }[] }[];
 };

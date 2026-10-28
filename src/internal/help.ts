@@ -38,6 +38,7 @@ export function projectHelp<Contexts>(cli: Cli<Contexts>, path: string): HelpNod
       const inline = `--${flag.name}${flag.valuePlaceholder ? ` ${flag.valuePlaceholder}` : ""}`;
       return flag.fileAlternative ? `(${inline} | --${flag.fileAlternative.name} <path>)` : flag.credentialEnv ? `(${inline} | env ${flag.credentialEnv})` : inline;
     }),
+    ...(spec?.payload?.textInput ? [`(--file <path> | --${spec.payload.textInput.flag} <string> | --${spec.payload.textInput.flag}-file <path>)`] : []),
     ...(model ? ["[options]", ...(spec?.passthrough ? ["[-- <tokens...>]"] : [])] : ["<command> [options]"])].filter(Boolean).join(" ");
   const examples: HelpNode["examples"] = node.command ? commandData(node.command).examples.map(example => {
     const { why, ...input } = example as { readonly why: string };
@@ -90,6 +91,7 @@ export function renderHelp<Contexts>(cli: Cli<Contexts>, path: string, documente
   section("Flags", node.flags.filter(flag => !sharedNames.has(flag.name)).map(flag => `--${flag.name}${flag.valuePlaceholder ? ` ${flag.valuePlaceholder}` : ""} — ${flag.description} [${flag.source}; ${describeValue(flag.value)}${flag.fileAlternative ? `; alternative: --${flag.fileAlternative.name}, max ${flag.fileAlternative.maxBytes} bytes, exclusive with --${flag.name}` : ""}${flag.credentialEnv ? `; credential fallback: env ${flag.credentialEnv}` : ""}${flag.required ? "; required" : ""}${flag.repeatable ? "; repeatable" : ""}${flag.default !== undefined ? `; default: ${JSON.stringify(flag.default)}` : ""}]`));
   section("Levels", Object.entries(node.levels ?? {}).map(([level, value]) => `${level}: ${value.selectors.map(s => `--${s}`).join(" ")} (${value.output})`));
   if (node.payload) section("Payload", [`Structured file or stdin (-), maximum ${node.payload.maxBytes} bytes.`,
+    ...(node.payload.textInput ? [`Supply exactly one of --file, --${node.payload.textInput.flag}, or --${node.payload.textInput.flag}-file. Text is preserved literally as field ${JSON.stringify(node.payload.textInput.field)}; maximum ${node.payload.maxBytes} UTF-8 bytes before JSON wrapping.`] : []),
     ...node.payload.examples.map(example => `Example: ${JSON.stringify(example.payload)} — ${example.why}`),
     ...(node.payload.schema ? [`Schema: ${renderReference(node.payload.schema, name)}`] : [])]);
   if (node.output) section("Output", [node.output]);

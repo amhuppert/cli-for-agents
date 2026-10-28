@@ -189,7 +189,7 @@ export function rebindInvocation(registry: object, value: unknown): import("../c
     if (entry.definition.secret) throw new TypeError("Invocation cannot include secret flags.");
     if (entry.definition.repeatable ? !Array.isArray(value) : Array.isArray(value)) throw new TypeError("Mismatched invocation flag cardinality.");
     for (const item of Array.isArray(value) ? value : [value]) scalar(entry.definition.value, item);
-    if (["domain", "global", "file"].includes(entry.help.source)) flags[name] = value;
+    if (["domain", "global", "file", "payload"].includes(entry.help.source) && name !== "file") flags[name] = value;
   }
   const parsed = parseTokens(state.nodes, referenceTokens(reference, model.spec.passthrough === true));
   if (parsed.kind !== "leaf" || parsed.node !== node) throw new TypeError("Invocation does not resolve to its declared target.");

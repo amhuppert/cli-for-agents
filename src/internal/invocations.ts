@@ -67,7 +67,9 @@ export function validationWriteHint<Contexts, Code extends string, G extends Rea
     }
     for (const source of input.sources) {
       if (source.kind !== "argument" && source.kind !== "payload" && model.flags[source.name]?.definition.fileSource) flags[`${source.name}-file`] = source.path;
+      if (source.kind === "payload" && source.name !== "file") flags[source.name] = source.path;
     }
+    if (input.payloadText !== undefined) flags[spec.payload!.textInput!.flag] = input.payloadText;
     // Stop at the first omitted positional slot; parsing restores any later defaults.
     const args: Record<string, unknown> = Object.create(null);
     for (const arg of spec.args) {
@@ -75,7 +77,7 @@ export function validationWriteHint<Contexts, Code extends string, G extends Rea
       if (value === undefined || Array.isArray(value) && value.length === 0) break;
       args[arg.name] = value;
     }
-    const caller = { args, flags, file: input.file, ...(spec.passthrough ? { passthrough: [] } : {}) };
+    const caller = { args, flags, ...(input.file !== undefined ? { file: input.file } : {}), ...(spec.passthrough ? { passthrough: [] } : {}) };
     const write = rebindInvocation(registry, makeInvocation(parsed.command, caller, false));
     const replayed = resolve(registry, invocationArgv(write));
     if (replayed.kind !== "leaf" || serializedJson(replayed.invocation.input) !== serializedJson(input)) return undefined;

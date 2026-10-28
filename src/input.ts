@@ -156,6 +156,9 @@ export type PayloadExample = { readonly payload: JsonValue; readonly why: string
 export type PayloadDeclaration = {
   /** The framework derives --file and its stdin support; no inline JSON flag exists. */
   readonly maxBytes: Bytes;
+  /** Derives --flag and --flag-file, exclusive with --file. Raw UTF-8 text is
+   * bounded by maxBytes and wrapped as { [field]: text } before schema decode. */
+  readonly textInput?: { readonly flag: string; readonly field: string; readonly description: string };
   /** validateReferences decodes each example with the command's lazy decoder. */
   readonly examples: NonEmpty<PayloadExample>;
   /** A read command of this CLI that prints the payload's full schema document. */

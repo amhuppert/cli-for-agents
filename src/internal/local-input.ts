@@ -55,9 +55,10 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
   try {
     const { input, command } = invocation;
     const { model, handler } = commandData(command);
-    const fail = (source: InputSource, message: string, cause: string): InputFailure => {
+    const fail = (source: InputSource | undefined, message: string, cause: string): InputFailure => {
+      if (!source) return new InputFailure({ message, why: `Payload --${model.spec.payload!.textInput!.flag} ${cause}` });
       const definition = source.kind === "argument" || source.kind === "payload" ? undefined : model.flags[source.name]!.definition;
-      const subject = source.kind === "payload" ? "Payload --file" : source.kind === "argument" ? `Argument <${source.name}>`
+      const subject = source.kind === "payload" ? `Payload --${source.name}` : source.kind === "argument" ? `Argument <${source.name}>`
         : `${definition!.secret ? "Secret " : ""}${source.kind === "global" ? "global" : "flag"} --${source.name}${definition!.value.kind === "file" ? "" : "-file"}`;
       const label = subject.charAt(0).toUpperCase() + subject.slice(1);
       if (definition?.secret) return new InputFailure({ message, why: `${label} ${cause}` });
@@ -82,7 +83,7 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
         throw new TypeError("Inline text exceeds its source byte limit.");
       }
     }
-    let payload: unknown; let payloadBytes: Uint8Array | undefined;
+    let payload: unknown; let payloadBytes: Uint8Array | undefined; let payloadText = input.payloadText;
     for (const source of input.sources) {
       request.signal.throwIfAborted();
       let data: unknown;
@@ -97,10 +98,13 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
       try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); }
       catch { throw fail(source, "Input is not valid UTF-8.", "is not valid UTF-8 text."); }
       if (source.kind === "payload") {
-        let parsed: unknown;
-        try { parsed = JSON.parse(text); }
-        catch (error) { throw fail(source, "Input is not valid JSON.", `is not valid JSON: ${jsonCause(error, text)}`); }
-        payload = frozenJson(parsed); payloadBytes = new Uint8Array(data);
+        if (source.name !== "file") payloadText = text;
+        else {
+          let parsed: unknown;
+          try { parsed = JSON.parse(text); }
+          catch (error) { throw fail(source, "Input is not valid JSON.", `is not valid JSON: ${jsonCause(error, text)}`); }
+          payload = frozenJson(parsed); payloadBytes = new Uint8Array(data);
+        }
       } else if (source.kind === "argument") args[source.name] = text;
       else {
         const definition = model.flags[source.name]!.definition;
@@ -111,6 +115,10 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
         }
         (source.kind === "global" ? globals : flags)[source.name] = value;
       }
+    }
+    if (payloadText !== undefined) {
+      payload = frozenJson({ [model.spec.payload!.textInput!.field]: payloadText });
+      payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
     }
     phase = "KERNEL_CONTRACT";
     recordTestEvent(request.signal, { type: "handler.load", commandPath: command.spec.path });
@@ -125,7 +133,7 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
       let result: unknown;
       try { result = await decoder.decode["~standard"].validate(payload); }
       catch (error) {
-        throw fail(input.sources.find(source => source.kind === "payload")!, "Payload decoder failed.", `decoder threw ${thrownName(error) ?? "a non-Error value"} instead of returning schema issues.`);
+        throw fail(input.sources.find(source => source.kind === "payload"), "Payload decoder failed.", `decoder threw ${thrownName(error) ?? "a non-Error value"} instead of returning schema issues.`);
       }
       request.signal.throwIfAborted();
       phase = "KERNEL_CONTRACT";

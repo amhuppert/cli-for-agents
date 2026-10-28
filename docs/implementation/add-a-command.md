@@ -69,6 +69,27 @@ command's decoder, so an example cannot drift from the schema. Add
 `schema: invocation(<read>, {...})` when a read command prints the full schema
 document; help then names it as `Schema: <tool> <command>`.
 
+To offer a prose shortcut for a structured payload, add a declarative text input:
+
+```ts
+payload: {
+  maxBytes: bytes(65_536),
+  validatePath: "launch-check",
+  textInput: { flag: "prompt", field: "brief", description: "Task to perform" },
+  examples: [{ payload: { brief: "Fix the failing test" }, why: "A task" }],
+}
+```
+
+This accepts exactly one of `--file request.json`, `--prompt 'Fix the failing test'`,
+or `--prompt-file task.txt` (also `-` for stdin). The latter two decode as
+`{ brief: text }` through the same schema and preparation as JSON input. No handler
+parsing is needed. File contents, including whitespace and a UTF-8 BOM, stay literal;
+`maxBytes` bounds the raw text. A text write hashes the JSON encoding of that object.
+Use `{ flags: { prompt: "Fix the failing test" }, why: "A prose task" }` for a
+command example, or the same input without `why` for `invocation` and
+`validationInvocation`. The generated help and validation twin share all three
+spellings. Avoid flag names that collide with domain flags, globals, or selectors.
+
 ### Plain read
 
 ```ts

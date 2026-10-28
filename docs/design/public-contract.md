@@ -66,6 +66,16 @@ Caller inputs and handler inputs are distinct:
   prints the full schema document; help prints it as `Schema: <tool> <command>`, and
   registration checks that it is a member read that parses as written. The schema is
   an ordinary command, so it keeps lazy loading, bounded delivery and spill.
+- A payload can declare `textInput: { flag: "prompt", field: "brief", description }`.
+  The same input model derives `--prompt` and `--prompt-file`; exactly one of these
+  or `--file` is required, including on validation twins. Text is preserved literally
+  and wrapped as `{ brief: text }` before the existing schema decoder. `maxBytes`
+  bounds raw UTF-8 text (the JSON wrapper can be larger). Text writes hash the UTF-8
+  bytes of `JSON.stringify({ brief: text })`; JSON file writes retain their original
+  byte hash. Commands without this declaration still require `--file`. Caller
+  examples and invocations use `{ flags: { prompt: text } }`,
+  `{ flags: { "prompt-file": path } }`, or `{ file: path }`; handler flags do not
+  include these generated payload inputs.
 - Level keys derive selectors. Explicit nonempty tuples support combinations such
   as `--context --full`. Selection requires a unique most-specific declared set;
   ties, incomparable matches and extra selector tokens fail. Domain filters remain
@@ -181,7 +191,7 @@ synthesizes firing evidence.
 After a successful validation twin the kernel generates one fallback hint,
 `Apply the validated payload: <tool> <write> ...`, when the original invocation
 replays faithfully: arguments up to the first omitted positional, globals, repeated
-and boolean flags, the payload file and file origins (`--name-file` paths, never
+and boolean flags, inline payload text, the payload file and file origins (`--name-file` paths, never
 file contents). Rebinding and reparsing must reproduce the same parsed inputs. It is
 omitted, without failing the check, for consumed stdin, a supplied secret, nonempty
 passthrough or a reference over its byte limit; environment credential fallbacks

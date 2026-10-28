@@ -185,7 +185,7 @@ export function inputModel(spec: CommandSpec, globals: Readonly<Record<string, F
     }
   }
   if (spec.payload !== undefined) {
-    assertRecord(spec.payload); assertFields(spec.payload, spec.effects === "write" ? ["maxBytes", "validatePath", "examples"] : ["maxBytes", "examples"], ["schema"]);
+    assertRecord(spec.payload); assertFields(spec.payload, spec.effects === "write" ? ["maxBytes", "validatePath", "examples"] : ["maxBytes", "examples"], ["schema", "textInput"]);
     bytes(spec.payload.maxBytes);
     if (!Array.isArray(spec.payload.examples) || !spec.payload.examples.length) throw new TypeError("Payloads require examples.");
     for (const example of spec.payload.examples) {
@@ -200,7 +200,15 @@ export function inputModel(spec: CommandSpec, globals: Readonly<Record<string, F
       try { assertInvocation(spec.payload.schema, "read"); } catch { throw new TypeError("Payload schema must be a read invocation."); }
     }
     if (spec.effects === "write") checkPath(spec.payload.validatePath);
-    add("file", { description: "Read structured payload from a file or stdin (-).", value: { kind: "file", maxBytes: spec.payload.maxBytes }, required: true }, "payload");
+    const text = spec.payload.textInput;
+    if (text !== undefined) {
+      assertRecord(text); assertFields(text, ["flag", "field", "description"]);
+      checkName(text.flag); assertText(text.field); assertText(text.description);
+      if (Object.hasOwn(frameworkFlags, text.flag)) throw new TypeError("Reserved payload text flag.");
+      add(text.flag, { description: text.description, value: { kind: "string", maxLength: spec.payload.maxBytes }, fileSource: { maxBytes: spec.payload.maxBytes } }, "payload");
+      add(`${text.flag}-file`, { description: `Read ${text.flag} from a file or stdin (-).`, value: { kind: "file", maxBytes: spec.payload.maxBytes } }, "payload");
+    }
+    add("file", { description: "Read structured payload from a file or stdin (-).", value: { kind: "file", maxBytes: spec.payload.maxBytes }, required: text === undefined }, "payload");
   }
   for (const name of ["help", "json", "version"] as const) add(name, { description: `${name} output.`, value: { kind: "boolean" } }, "framework");
   if (spec.output === "binary" || Object.values(spec.levels ?? {}).some(l => l.output === "artifact-eligible")) add("out", { description: "Write artifact to this output destination. Relative paths resolve inside the artifact directory, which is created when needed; absolute paths must stay inside it. The destination's parent directory must exist. Existing files are reused only when their bytes are identical; they are never overwritten.", value: { kind: "output-path" } }, "framework");
@@ -214,7 +222,7 @@ export type CheckedInput = {
   readonly globals: Readonly<Record<string, string | number | boolean | readonly (string | number | boolean)[]>>;
   readonly sources: readonly InputSource[];
   readonly credentials: readonly { readonly name: string; readonly env: string; readonly global: boolean; readonly required: boolean }[];
-  readonly file?: string; readonly level?: string; readonly out?: string; readonly passthrough?: readonly string[];
+  readonly file?: string; readonly payloadText?: string; readonly level?: string; readonly out?: string; readonly passthrough?: readonly string[];
 };
 
 /** Checks caller/example records without reading a selected source or environment. */
@@ -246,7 +254,7 @@ export function checkCaller(model: InputModel, caller: object, suggestion: boole
     if (resolved !== undefined) resultArgs[arg.name] = resolved;
     if (arg.value.kind === "file" && typeof resolved === "string") sources.push({ kind: "argument", name: arg.name, path: resolved, maxBytes: arg.value.maxBytes });
   }
-  assertFields(suppliedFlags, [], Object.keys(model.flags).filter(n => ["domain", "global", "file"].includes(model.flags[n]!.help.source)));
+  assertFields(suppliedFlags, [], Object.keys(model.flags).filter(n => ["domain", "global", "file"].includes(model.flags[n]!.help.source) || n !== "file" && model.flags[n]!.help.source === "payload"));
   for (const [name, entry] of Object.entries(model.flags)) {
     if (!["domain", "global"].includes(entry.help.source)) continue;
     const def = entry.definition; const target = entry.global ? globals : resultFlags;
@@ -264,11 +272,30 @@ export function checkCaller(model: InputModel, caller: object, suggestion: boole
     if (resolved !== undefined) target[name] = resolved;
     if (def.value.kind === "file" && typeof resolved === "string") sources.push({ kind: entry.global ? "global" : "flag", name, path: resolved, maxBytes: def.value.maxBytes });
   }
-  const extra: { file?: string; level?: string; out?: string; passthrough?: readonly string[] } = {};
+  const extra: { file?: string; payloadText?: string; level?: string; out?: string; passthrough?: readonly string[] } = {};
   if (model.spec.payload) {
-    if (input["file"] === undefined) throw new InputValidationError("payload file --file", ["file"]);
-    extra.file = scalar({ kind: "file", maxBytes: model.spec.payload.maxBytes }, input["file"]) as string;
-    sources.push({ kind: "payload", name: "file", path: extra.file, maxBytes: model.spec.payload.maxBytes });
+    const { textInput: text, maxBytes } = model.spec.payload;
+    const inline = text && Object.hasOwn(suppliedFlags, text.flag) ? suppliedFlags[text.flag] : undefined;
+    const textFile = text && Object.hasOwn(suppliedFlags, `${text.flag}-file`) ? suppliedFlags[`${text.flag}-file`] : undefined;
+    if (text) {
+      if ([input["file"], inline, textFile].filter(value => value !== undefined).length !== 1) {
+        throw new InputValidationError("payload source", ["file"], `Supply exactly one of --file, --${text.flag}, or --${text.flag}-file.`);
+      }
+      if (inline !== undefined) {
+        extra.payloadText = callerValue(model.flags[text.flag]!.definition.value, inline, `flag --${text.flag}`, ["flags", text.flag]) as string;
+        if (new TextEncoder().encode(extra.payloadText).byteLength > maxBytes) {
+          throw new InputValidationError(`flag --${text.flag}`, ["flags", text.flag], `Flag --${text.flag} exceeds the ${maxBytes}-byte limit.`);
+        }
+      } else if (textFile !== undefined) {
+        const name = `${text.flag}-file`;
+        const path = callerValue(model.flags[name]!.definition.value, textFile, `flag --${name}`, ["flags", name]) as string;
+        sources.push({ kind: "payload", name, path, maxBytes });
+      }
+    } else if (input["file"] === undefined) throw new InputValidationError("payload file --file", ["file"]);
+    if (input["file"] !== undefined) {
+      extra.file = scalar({ kind: "file", maxBytes }, input["file"]) as string;
+      sources.push({ kind: "payload", name: "file", path: extra.file, maxBytes });
+    }
   } else if (input["file"] !== undefined) throw new TypeError("Unexpected payload file.");
   if (input["level"] !== undefined) {
     if (typeof input["level"] !== "string" || !Object.hasOwn(model.selectors, input["level"])) throw new TypeError("Unknown detail level.");

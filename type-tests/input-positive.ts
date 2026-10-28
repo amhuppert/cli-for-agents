@@ -75,3 +75,19 @@ export function safeCredentialUnions(ambient: SafeFallbackUnion, optional: Optio
   invocation(global, { file: "request.json" });
   validationInvocation(global, { file: "request.json" });
 }
+
+export const promptSpec = {
+  path: "launch", requires: "none", effects: "write", summary: "Launch", description: "Launch a task",
+  args: [], flags: { verbose: { description: "Verbose", value: { kind: "boolean" } } },
+  payload: { maxBytes: bytes(100), validatePath: "launch-check", textInput: { flag: "prompt", field: "brief", description: "Task" }, examples: [{ payload: { brief: "work" }, why: "A task" }] },
+} as const;
+declare const promptHandler: HandlerModule<typeof promptSpec, never, {}>;
+export const promptCommand = commandsFor<{}>()({ errors: defineErrors({}), globalFlags: {} }).defineCommand(promptSpec, {
+  examples: [{ file: "task.json", why: "JSON task" }, { flags: { prompt: "work", verbose: true }, why: "Inline task" }, { flags: { "prompt-file": "task.txt" }, why: "File task" }],
+  handler: async () => promptHandler,
+});
+invocation(promptCommand, { file: "task.json" });
+invocation(promptCommand, { flags: { prompt: "work", verbose: true } });
+invocation(promptCommand, { flags: { "prompt-file": "task.txt" } });
+validationInvocation(promptCommand, { flags: { prompt: "work" } });
+validationInvocation(promptCommand, { flags: { "prompt-file": "task.txt" } });

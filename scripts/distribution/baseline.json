@@ -1,5 +1,5 @@
 {
-  "bytes": 110592,
+  "bytes": 112640,
   "eager": [
     "offline:dist/commands.js",
     "offline:dist/disclosure.js",

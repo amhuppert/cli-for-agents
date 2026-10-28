@@ -1,4 +1,4 @@
-import type { ExactInputs, ExampleInputs, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, SuggestionInputs, ValidInput, Flag, ParsedFlags, ValidFlags, DerivedFileNames } from "./input.js";
+import type { ExactInputs, ExampleInputs, InputSpec, Inputs, PayloadDeclaration, MutationPayloadDeclaration, StandardSchema, SuggestionInputs, ValidInput, Flag, ParsedFlags, ValidFlags, DerivedFileNames, ReservedFlag } from "./input.js";
 import type { Brand } from "./internal/brand.js";
 import { makeFamily, makeGroup, makeFlow } from "./internal/declarations.js";
 import { makePayloadModule, makeRenderedRunner } from "./internal/runner-modules.js";
@@ -34,8 +34,14 @@ export type CommandSpec = Metadata & InputSpec & { readonly requires: string; re
   | { readonly effects: "read"; readonly levels?: Readonly<Record<string, DisclosureLevel>>; readonly payload?: PayloadDeclaration & { readonly validatePath?: never } }
   | { readonly effects: "write"; readonly payload?: MutationPayloadDeclaration; readonly levels?: never }
 );
+type PayloadTextFlag<S extends CommandSpec> = S extends { readonly payload: { readonly textInput: { readonly flag: infer F extends string } } } ? F : never;
+type PayloadTextNames<S extends CommandSpec> = PayloadTextFlag<S> | `${PayloadTextFlag<S>}-file`;
 type PayloadInput<S extends CommandSpec> = S extends { readonly payload: PayloadDeclaration }
-  ? { readonly file: string } : { readonly file?: never };
+  ? [PayloadTextFlag<S>] extends [never] ? { readonly file: string }
+    : { readonly file: string; readonly flags?: { readonly [K in PayloadTextNames<S>]?: never } }
+      | { readonly file?: never; readonly flags: { readonly [K in PayloadTextFlag<S>]: string } & { readonly [K in `${PayloadTextFlag<S>}-file`]?: never } }
+      | { readonly file?: never; readonly flags: { readonly [K in PayloadTextFlag<S>]?: never } & { readonly [K in `${PayloadTextFlag<S>}-file`]: string } }
+  : { readonly file?: never };
 /** Dispatch owns these selectors; a level's runner need not parse its own selector flag. */
 type LevelInput<S extends CommandSpec> = ({ readonly level?: never } & (S extends { readonly output: "binary" } ? { readonly out?: string } : { readonly out?: never })) | (
   S extends { readonly levels: infer L extends Readonly<Record<string, DisclosureLevel>> }
@@ -148,8 +154,10 @@ type IsUnion<T, Whole = T> = T extends Whole ? [Whole] extends [T] ? false : tru
 /** A single selected key keeps none/app absence correlated across every lazy runner. */
 type SingleContextKey<K extends string> = [K] extends [never] ? never
   : string extends K ? never : true extends IsUnion<K> ? never : unknown;
-type ValidSpec<S extends CommandSpec, G extends Readonly<Record<string, Flag>>> = S & SingleContextKey<S["requires"]> & ValidInput<S, SelectorNames<S> | (keyof G & string) | DerivedFileNames<G>>
+type ValidSpec<S extends CommandSpec, G extends Readonly<Record<string, Flag>>> = S & SingleContextKey<S["requires"]> & ValidInput<S, SelectorNames<S> | (keyof G & string) | DerivedFileNames<G> | PayloadTextNames<S>>
   & (Extract<SelectorNames<S>, keyof G | DerivedFileNames<G>> extends never ? unknown : never) & ValidLevels<S>
+  & (string extends PayloadTextFlag<S> ? never : unknown)
+  & (Extract<PayloadTextNames<S>, ReservedFlag | SelectorNames<S> | keyof G | DerivedFileNames<G>> extends never ? unknown : never)
   & (string extends S["path"] ? never : unknown);
 
 /** Declaration tokens carry checked family requirements without importing a handler. */
