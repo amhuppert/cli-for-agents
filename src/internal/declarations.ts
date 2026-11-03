@@ -65,10 +65,12 @@ export function makeFamily<Contexts, D extends ErrorDefinitions, G extends Reado
   const globalFlags = frozenJson(options.globalFlags); checkFlags(globalFlags);
   const defineCommand: CommandBuilder<Contexts, D, G> = (spec, binding) => {
     const snapshot = frozenJson(spec); assertRecord(snapshot);
-    assertFields(snapshot, ["path", "summary", "description", "requires", "effects", "args", "flags"], ["related", "skills", "sections", "dynamicHelp", "passthrough", "output", "payload", "levels"]);
+    assertFields(snapshot, ["path", "summary", "description", "requires", "effects", "args", "flags"], ["related", "skills", "sections", "dynamicHelp", "passthrough", "output", "payload", "levels", "presentation"]);
     checkMetadata(snapshot);
     if (snapshot.requires !== "none") checkPath(snapshot.requires);
     if (!["read", "write"].includes(snapshot.effects)) throw new TypeError("Invalid command effects.");
+    if (snapshot.presentation !== undefined && (snapshot.presentation !== "outcome" && snapshot.presentation !== "query"
+      || snapshot.effects === "write" && snapshot.presentation !== "outcome")) throw new TypeError("Invalid command presentation.");
     if (snapshot.output !== undefined && snapshot.output !== "binary") throw new TypeError("Invalid output kind.");
     if (snapshot.passthrough !== undefined && snapshot.passthrough !== true) throw new TypeError("Invalid passthrough marker.");
     if (typeof binding.handler !== "function") throw new TypeError("Expected lazy handler function.");

@@ -87,9 +87,11 @@ and that fixture handlers reach stdout only through public `main`.
 
 ## Startup and size guards
 
-`scripts/distribution/baseline.json` holds a **size budget of 110,592 bytes**
-(108 KiB) for the single-file bundle, including the lazy inherited contract
-harness, alongside the measured source/offline module allowlist. It was raised
+`scripts/distribution/baseline.json` holds a **size budget of 114,688 bytes**
+(112 KiB) for the single-file bundle, including the lazy inherited contract
+harness, alongside the measured source/offline module allowlist. The latest increase
+from 112,640 bytes covers outcome presentation, bounded domain state and concise
+error delivery; it adds no eager modules. An earlier increase was
 from 104,448 bytes when cli-for-agents#3 grew the measured bundle from 102,051 to
 107,149 bytes (+5,098) with on-demand artifact directories, validation previews and
 generated write hints, spill metadata, reference selection and parity diagnostics;

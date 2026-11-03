@@ -3,6 +3,12 @@ import { evaluateGuidance, type EvaluatedGuidance, type HandlerGuidance } from "
 import { arbitrate } from "../src/internal/response.js";
 import { family, readSpec, read } from "./runner-positive.js";
 declare function accepts<T>(value: T): void;
+// @ts-expect-error A write cannot select query presentation.
+accepts<import('cli-for-agents').CommandSpec>({ ...readSpec, effects: 'write', presentation: 'query' });
+// @ts-expect-error Outcomes require a reached state.
+accepts<import('cli-for-agents').AnyResult>({ ok: true, data: null, outcome: { reason: 'Needs review.' } });
+// @ts-expect-error Outcome identifiers are text, not arbitrary JSON.
+accepts<import('cli-for-agents').AnyResult>({ ok: true, data: null, outcome: { state: 'held', id: 12 } });
 declare const error: CliError;
 declare const connection: CliError<"OFFLINE", "connection">;
 const recovery = recoveryFacts([{ kind: "operation", id: "real-id" }]);

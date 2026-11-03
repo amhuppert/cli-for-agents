@@ -24,7 +24,7 @@ export const showSpec = { ...base, path: 'show', args: nodeArgs, levels: {
 } } as const;
 export const show = define(showSpec, { examples: [{ args: { id: 'n1' }, why: 'Inspect a stable handle.' }], handler: async () => ({ default: (await import('./show.handler.js')).default }) });
 const claimExamples = [{ payload: { nodeId: 'n1', text: 'The claim text, as saved.' }, why: 'Claim one node' }] as const;
-export const answerSpec = { ...base, path: 'answer-check', payload: { maxBytes: bytes(65536), examples: claimExamples } } as const;
+export const answerSpec = { ...base, path: 'answer-check', presentation: 'outcome', payload: { maxBytes: bytes(65536), examples: claimExamples } } as const;
 export const answer = define(answerSpec, { examples: [{ file: 'claim.json', why: 'Check an answer against saved claims.' }], handler: async () => ({ default: (await import('./answer.handler.js')).default }) });
 export const applySpec = { ...base, path: 'claim apply', effects: 'write', payload: { maxBytes: bytes(65536), validatePath: 'claim validate', examples: claimExamples } } as const;
 export const apply = define(applySpec, { examples: [{ file: 'claim.json', why: 'Validate before applying a claim.' }], handler: async () => ({ default: (await import('./apply.handler.js')).default }) });
@@ -34,7 +34,7 @@ export const ingestSpec = { ...base, path: 'ingest', args: nodeArgs, effects: 'w
 export const ingest = define(ingestSpec, { examples: [{ args: { id: 'n1' }, flags: { source: 'document.txt' }, why: 'Ingest raw text.' }], handler: async () => ({ default: (await import('./ingest.handler.js')).default }) });
 export const exportSpec = { ...base, path: 'export', args: nodeArgs, output: 'binary' } as const;
 export const exportNode = define(exportSpec, { examples: [{ args: { id: 'n1' }, why: 'Export exact UTF-8 bytes.' }], handler: async () => ({ default: (await import('./export.handler.js')).default }) });
-export const contractsSpec = { ...base, path: 'contracts', requires: 'none', summary: 'Run inherited contract cases', description: 'Exercise the local store through all seven consumer contract scenarios.' } as const;
+export const contractsSpec = { ...base, path: 'contracts', requires: 'none', presentation: 'outcome', summary: 'Run inherited contract cases', description: 'Exercise the local store through all seven consumer contract scenarios.' } as const;
 export const contracts = define(contractsSpec, { examples: [{ why: 'Verify the local executable contract.' }], handler: async () => ({ default: (await import('./contracts.handler.js')).default }) });
 export const groups = [defineGroup({ path: 'claim', summary: 'Manage claims', description: 'Validate and apply structured claims.' })];
 export const commands = [doctor, init, query, show, answer, apply, update, ingest, exportNode, contracts];

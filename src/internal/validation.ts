@@ -47,7 +47,7 @@ export function assertMediaType(value: unknown): asserts value is string {
 /** Writing and remote decoding admit the same artifact metadata combinations. */
 export function assertArtifactMetadata({ mediaType, format, reason, contains }: Readonly<Record<string, unknown>>): void {
   assertMediaType(mediaType);
-  if (!(["stdout_budget_exceeded", "explicit_out", "binary_request"] as readonly unknown[]).includes(reason)
+  if (!(["stdout_budget_exceeded", "diagnostics_exceeded", "explicit_out", "binary_request"] as readonly unknown[]).includes(reason)
     || (format === "binary" ? contains !== "binary"
       : format !== "json" && format !== "text"
         || contains !== "response" && contains !== "data")) throw new TypeError("Invalid artifact metadata.");

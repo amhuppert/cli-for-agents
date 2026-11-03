@@ -3,6 +3,8 @@ import test from 'node:test';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
+import { checkRuntime, runtimePins } from '../scripts/distribution/compatibility.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,8 +16,10 @@ async function temporary(t) {
   return directory;
 }
 function childRun(t, argv, { env = {}, nodeArgs = [], executable = process.execPath, slow, onData, closePipe } = {}) {
+  const artifacts = mkdtempSync(join(tmpdir(), 'cli-process-output-'));
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
   const child = spawn(executable, [...nodeArgs, fixture, ...argv], {
-    env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, PROCESS_ARTIFACT_DIR: artifacts, ...env }, stdio: ['pipe', 'pipe', 'pipe'],
   });
   const stdout = [], stderr = [];
   for (const [name, chunks] of [['stdout', stdout], ['stderr', stderr]]) {
@@ -80,7 +84,7 @@ test('offline main acquires Node lazily and never imports the handler or crypto'
 });
 
 test('main runs on the Node 20 floor with compile cache opted in', async t => {
-  const result = await childRun(t, ['--version'], { executable: '/Users/alex/.local/share/cli-for-agents/runtimes/node20/bin/node',
+  const result = await childRun(t, ['--version'], { executable: checkRuntime((await runtimePins()).node20).executable,
     env: { PROCESS_COMPILE_CACHE: '1' } }).settled;
   assert.deepEqual(result, { code: 0, signal: null, stdout: 'process-fixture 1.2.3\n', stderr: '' });
 });
@@ -118,7 +122,7 @@ for (const argv of [['--version'], ['--help'], ['exit-codes'], ['inspect', '--he
 
 for (const [command, json, stream, exitCode] of [
   ['large', true, 'stdout', 0], ['large', false, 'stdout', 0],
-  ['failure', true, 'stdout', 3], ['failure', false, 'stderr', 3],
+  ['failure', true, 'stdout', 3],
   ['save', true, 'stdout', 0],
 ]) test(`drain preserves every UTF-8 byte for ${command} ${json ? 'JSON' : 'text'}`, async t => {
   const argv = [command, ...(json ? ['--json'] : [])];
@@ -139,6 +143,19 @@ for (const [command, json, stream, exitCode] of [
     assert.deepEqual(wire.recovery, { kind: 'reported', references: [{ kind: 'receipt', id: 'saved-1' }] });
     assert.match(wire.instruction, /Inspect saved state/);
   }
+});
+
+test('failure text drains a concise verdict and preserves full UTF-8 diagnostics in its artifact', async t => {
+  const result = await childRun(t, ['failure'], { slow: 'stderr' }).settled;
+  assert.equal(result.code, 3);
+  assert.equal(result.stdout, '');
+  assert.ok(Buffer.byteLength(result.stderr) < 8192);
+  assert.match(result.stderr, /^error: OFFLINE: Disconnected/m);
+  assert.match(result.stderr, /\noutcome: failed; exit: connection; code: OFFLINE; effect: read\n$/);
+  const manifest = JSON.parse(result.stderr.split('\n').find(line => line.startsWith('artifact: ')).slice('artifact: '.length));
+  assert.equal(manifest.reason, 'diagnostics_exceeded');
+  const full = JSON.parse(await readFile(manifest.path, 'utf8'));
+  assert.equal(full.error.details.body, '🌍'.repeat(80000));
 });
 
 for (const [command, json, stream, code] of [['save', true, 'stdout', 0], ['failure', true, 'stdout', 3], ['failure', false, 'stderr', 3]]) {

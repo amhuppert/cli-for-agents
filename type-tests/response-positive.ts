@@ -30,6 +30,9 @@ accepts<readonly GuidanceCandidate[]>(batch.candidates);
 const input: ArbitrationInput = { commandPath: "read", handler: { instruction: instruction("handler", "Wait.") }, evaluated: batch, conflictSink: event => { accepts<"guidance.conflict">(event.type); } };
 arbitrate(input);
 accepts<AnyResult>({ ok: true, data: null, issues: batch.issues });
+accepts<AnyResult>({ ok: true, data: null, outcome: { state: 'pending_approval', id: 'request-1', reason: 'A reviewer must approve.' } });
+accepts<AnyResult>({ ok: false, error: denied, outcome: { state: 'held' } });
+family.defineCommand({ ...readSpec, presentation: 'outcome' }, { examples: [{ why: 'Check' }], handler: async () => ({ default: read }) });
 
 // An automatic spill discloses the attempted inline size beside the artifact manifest.
 import { bytes, type AnyPayload, type ArtifactManifest } from "cli-for-agents";

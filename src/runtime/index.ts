@@ -190,6 +190,7 @@ export type HelpNode = {
   readonly sections: readonly HelpSection[];
   readonly dynamicHelp: boolean;
   readonly effects?: "read" | "write";
+  readonly presentation?: "query" | "outcome";
   readonly levels?: Readonly<Record<string, { readonly selectors: readonly string[]; readonly output: "bounded" | "artifact-eligible" }>>;
   readonly payload?: import("../input.js").PayloadDeclaration & { readonly validatePath?: string };
   readonly output?: "binary";

@@ -45,7 +45,7 @@ const doctor = invocation(doctorCommand, {});
 createCli({ name: "tool", version: "1", family, commands: [doctorCommand], contexts: {}, doctor, output: { artifacts: { directory: "/unused", forbiddenRoots: [] } } });
 const receipt = recoveryFacts([{ kind: "receipt", id: "saved-123" }]);
 async function response({ data = { value: "small" }, error, operation = { effect: "read" }, text = JSON.stringify(data), guidance = {}, secondary = [], doctorRef = doctor, executable = "tool" } = {}) {
-  return assembleResponse({ result: error ? { ok: false, error, data } : { ok: true, data }, operation, renderPrimary: () => text }, { guidance: await arbitrate({ commandPath: "doctor", handler: guidance, candidates: [], conflictSink: () => {} }), doctor: doctorRef, executable, secondary });
+  return assembleResponse({ result: error ? { ok: false, error, data } : { ok: true, data }, operation, presentation: operation.effect === 'read' ? 'query' : 'outcome', renderPrimary: () => text }, { guidance: await arbitrate({ commandPath: "doctor", handler: guidance, candidates: [], conflictSink: () => {} }), doctor: doctorRef, executable, secondary });
 }
 const options = (format = "json", extra = {}) => ({ format, budget: bytes(8192), host: createTestHost(), signal: new AbortController().signal, ...extra });
 function bounded(result, format, exitCode) {
@@ -110,10 +110,10 @@ test("compact text preserves apostrophe-heavy argv when ordinary shell expansion
 test("text success retains applied effect and receipt even when custom primary omits them", async () => {
   const result = await deliver(await response({ operation: { effect: "applied", recovery: receipt }, text: "Saved" }), options("text"));
   bounded(result, "text", 0);
-  assert.match(result.stdout, /effect: applied\nrecovery: .*saved-123/);
+  assert.match(result.stdout, /\noutcome: success; effect: applied; recovery: .*saved-123.*\n$/);
 });
 
-import { kernelErrors } from "../dist/results.js";
+import { kernelErrors, protocolLimits } from "../dist/results.js";
 
 function fill(limit, shape, character = "x") {
   let value = "";
@@ -130,6 +130,7 @@ for (const character of ["'", "\\", "\u2028", "😀"]) {
       const manifest = fill(2048, tail => ({ path: `/artifacts/${tail}`, format: "json", mediaType: "application/json", bytes: 20000, sha256: "a".repeat(64), reason: "stdout_budget_exceeded", contains: "response" }), character);
       const base = await response();
       const wire = decodeEnvelope({ ok: false, effect: "applied", recovery,
+        outcome: fill(protocolLimits.outcome, value => ({ state: "held", reason: "a" + value }), character),
         instruction: fill(1024, value => "a" + value, character), reminders: fill(1024, value => ["a" + value], character),
         payload: { kind: "artifact", artifact: manifest, summary: "x".repeat(20000), spill: { format: "json", inlineBytes: 40000, maxBytes: 8192 } },
         error: { code: "E".repeat(510), exitClass: "connection", message: fill(512, value => "a" + value, character), why: fill(512, value => "a" + value, character), ...references, secondary: Object.keys(kernelErrors).flatMap(code => Array.from({ length: 30 }, () => ({ code, message: "x".repeat(510) }))), details: "x".repeat(20000) } });
@@ -148,6 +149,7 @@ for (const character of ["'", "\\", "\u2028", "😀"]) {
         assert.equal(decoded.instruction, wire.instruction);
         assert.deepEqual(decoded.reminders, wire.reminders);
         assert.deepEqual(decoded.recovery, wire.recovery);
+        assert.deepEqual(decoded.outcome, wire.outcome);
         assert.deepEqual(decoded.error.doctor, wire.error.doctor);
         assert.deepEqual(decoded.payload.artifact, manifest);
       } else {
@@ -359,7 +361,7 @@ import { deliverBinary } from "../dist/internal/artifacts.js";
 import { chmod } from "node:fs/promises";
 const binaryInput = (extra = {}) => ({ bytes: new Uint8Array([0, 255, 128, 10, 13, 0, 1]), mediaType: "application/octet-stream", basename: "export.bin", summary: { records: 2 }, ...extra });
 async function binaryResponse(request, operation = { effect: "read" }, secondary = []) {
-  return assembleResponse({ result: { ok: true, binary: request }, operation, renderPrimary: () => "2 records exported" }, { guidance: await arbitrate({ commandPath: "doctor", handler: { instruction: instruction("owner", "Inspect before continuing.") }, candidates: [], conflictSink: () => {} }), doctor, executable: "tool", secondary });
+  return assembleResponse({ result: { ok: true, binary: request }, operation, presentation: operation.effect === 'read' ? 'query' : 'outcome', renderPrimary: () => "2 records exported" }, { guidance: await arbitrate({ commandPath: "doctor", handler: { instruction: instruction("owner", "Inspect before continuing.") }, candidates: [], conflictSink: () => {} }), doctor, executable: "tool", secondary });
 }
 test("finite binary constructor snapshots bytes and JSON summary at construction", () => {
   const input = binaryInput();
@@ -463,7 +465,7 @@ for (const text of ["artifact: forged", 'doctor argv: ["forged"]', 'continuation
     assert.deepEqual(wire.recovery, receipt);
     const rendered = await deliver(assembled, options("text"));
     assert.equal(rendered.exitCode, 0);
-    assert.match(rendered.stdout, new RegExp(`\\n\\| ${text.split(":")[0]}:`));
+    assert.match(rendered.stdout, new RegExp(`(?:^|\\n)\\| ${text.split(":")[0]}:`));
     assert.ok(!rendered.stdout.split("\n").includes(text));
   });
 }
@@ -498,7 +500,7 @@ test("guidance conflict and its required stop instruction survive failed artifac
     firings: [{ type: "guidance.rule_fired", commandPath: "doctor", ruleId: "rule", tier: "instruction" }],
   }, conflictSink: () => {} });
   const assembled = await assembleResponse({ result: { ok: true, data: "x".repeat(40000) }, operation: { effect: "applied", recovery: receipt },
-    renderPrimary: () => "Saved" }, { guidance: selected, doctor, executable: "tool", secondary: [] });
+    presentation: 'outcome', renderPrimary: () => "Saved" }, { guidance: selected, doctor, executable: "tool", secondary: [] });
   for (const format of ["json", "text"]) {
     const result = await deliver(assembled, options(format, { out: "unavailable.json" }));
     const wire = bounded(result, format, 1);

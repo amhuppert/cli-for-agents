@@ -185,7 +185,12 @@ export async function deliver(response: AssembledResponse, options: {
   };
   const inline = renderResponse(response, options.format);
   const inlineBytes = measureOutput(inline);
-  if (!response.binary && options.out === undefined && inlineBytes <= budget) return finish(inline, response.envelope);
+  const diagnosticOverflow = options.format === "text" && !response.envelope.ok && (
+    response.primaryText.split("\n").filter(Boolean).length + (response.envelope.error.issues?.length ?? 0)
+      + response.envelope.error.secondary.length + (response.envelope.error.details === undefined ? 0 : 1) > protocolLimits.errorDetailLines
+    || measureOutput({ stdout: response.primaryText, stderr: JSON.stringify({ issues: response.envelope.error.issues,
+      details: response.envelope.error.details, secondary: response.envelope.error.secondary }) }) > protocolLimits.errorDetailBytes);
+  if (!response.binary && options.out === undefined && inlineBytes <= budget && !diagnosticOverflow) return finish(inline, response.envelope);
   let manifest = response.envelope.payload?.kind === "artifact" ? response.envelope.payload.artifact : undefined;
   let failure: SecondaryFailure | undefined;
   if (response.binary || options.out !== undefined || options.artifacts && !manifest) {
@@ -200,7 +205,7 @@ export async function deliver(response: AssembledResponse, options: {
         manifest = await writeArtifact({ bytes: new TextEncoder().encode(JSON.stringify(content) + "\n"),
           format: "json", mediaType: "application/json", basename: "response.json",
           ...(options.out !== undefined ? { out: options.out } : {}),
-          reason: options.out !== undefined ? "explicit_out" : "stdout_budget_exceeded", contains: dataOnly ? "data" : "response" },
+          reason: options.out !== undefined ? "explicit_out" : inlineBytes > budget ? "stdout_budget_exceeded" : "diagnostics_exceeded", contains: dataOnly ? "data" : "response" },
         policy, options.host, options.signal);
       }
     } catch (error) {
@@ -211,11 +216,11 @@ export async function deliver(response: AssembledResponse, options: {
   if (manifest && response.binary && !failure) {
     const envelope = decodeWireEnvelope({ ...response.envelope, payload: { kind: "artifact", artifact: manifest, summary: response.binary.summary } });
     const output = renderResponse({ ...response, envelope, primaryText: `${response.primaryText}\nartifact: ${JSON.stringify(manifest)}`.trimStart() }, options.format);
-    if (measureOutput(output) <= budget) return finish(output, envelope);
+    if (measureOutput(output) <= budget && !diagnosticOverflow) return finish(output, envelope);
   }
   // An automatic spill is normal delivery: disclose the attempted size, not an issue.
   const spill = manifest?.reason === "stdout_budget_exceeded" ? { format: options.format, inlineBytes, maxBytes: budget } : undefined;
-  let envelope = compactEnvelope(response.envelope, manifest, failure, spill);
+  let envelope = compactEnvelope(response.envelope, manifest, failure, spill, false, diagnosticOverflow);
   let output = projectCompact(response, envelope, manifest, options.format, budget);
   if (measureOutput(output) > budget) {
     envelope = compactEnvelope(response.envelope, manifest, failure, spill, true);
@@ -233,7 +238,8 @@ export async function deliver(response: AssembledResponse, options: {
 function projectCompact(response: AssembledResponse, envelope: AnyEnvelope, manifest: ArtifactManifest | undefined,
   format: "text" | "json", budget: Bytes): ReturnType<typeof renderResponse> {
   const spill = envelope.payload?.kind === "artifact" ? envelope.payload.spill : undefined;
-  const notice = spill ? `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.\n` : "";
+  const notice = spill ? `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.\n`
+    : manifest?.reason === "diagnostics_exceeded" ? "notice: diagnostic detail exceeds the inline limit; full response in artifact.\n" : "";
   const compact = { ...response, envelope, primaryText: manifest ? `${notice}artifact: ${JSON.stringify(manifest)}` : "" };
   let output = renderResponse(compact, format);
   if (format === "text" && measureOutput(output) > budget) output = renderResponse(compact, "text", true);
@@ -253,7 +259,8 @@ function bounded(output: ReturnType<typeof renderResponse>, budget: Bytes): RunR
 }
 
 type Spill = NonNullable<Extract<AnyPayload, { readonly kind: "artifact" }>["spill"]>;
-function compactEnvelope(source: AnyEnvelope, manifest?: ArtifactManifest, failure?: SecondaryFailure, spill?: Spill, compactSecondary = false): AnyEnvelope {
+function compactEnvelope(source: AnyEnvelope, manifest?: ArtifactManifest, failure?: SecondaryFailure, spill?: Spill,
+  compactSecondary = false, compactDiagnostics = false): AnyEnvelope {
   const { payload: _payload, hint: _hint, ...protocol } = source;
   const payload = manifest ? { kind: "artifact", artifact: manifest, summary: { omitted: true }, ...(spill ? { spill } : {}) }
     : { kind: "inline", data: { omitted: true } };
@@ -270,7 +277,8 @@ function compactEnvelope(source: AnyEnvelope, manifest?: ArtifactManifest, failu
   const failures = source.ok ? [] : [...source.error.secondary, ...(failure ? [failure] : [])];
   // Preserve full facts when feasible. For unbounded diagnostic counts/details,
   // keep one structured fact per finite catalog code and disclose omitted detail.
-  const secondary = compactSecondary ? [...new Set(failures.map(item => item.code))].map(code => ({ code, message: "Omitted." })) : failures;
-  const issues = !compactSecondary ? manifest ? primaryIssues : unavailable : complete ? undefined : omitted;
+  const secondary = compactSecondary || compactDiagnostics && failures.length > protocolLimits.errorDetailLines
+    ? [...new Set(failures.map(item => item.code))].map(code => ({ code, message: "Omitted." })) : failures;
+  const issues = !compactSecondary && !compactDiagnostics ? manifest ? primaryIssues : unavailable : complete ? undefined : omitted;
   return decodeWireEnvelope({ ...fields, ok: false, payload, error: { ...error, ...(issues ? { issues } : {}), secondary } });
 }

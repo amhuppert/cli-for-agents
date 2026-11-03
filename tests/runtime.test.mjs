@@ -563,7 +563,7 @@ for (const json of [true, false]) {
     assert.match(whole(result), /saved-42/);
     assert.match(whole(result), /inside a forbidden root/);
     if (json) { assert.equal(wire(result).effect, 'applied'); assert.deepEqual(wire(result).recovery, receipt); }
-    else assert.match(result.stderr, /^effect: applied$/m);
+    else assert.match(result.stderr, /^outcome: failed;.*effect: applied;.*saved-42.*\n$/m);
   });
   test(`primary domain failure keeps the forbidden-policy cause as a secondary diagnostic (${json ? 'JSON' : 'text'})`, async () => {
     const x = policyCase({ directory: '/artifacts', forbiddenRoots: ['/artifacts'] }, {

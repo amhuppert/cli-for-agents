@@ -135,6 +135,27 @@ in `error.details.thrown`; inspect state before retrying. Build recovery referen
 before dispatching: a `recoveryFacts` refusal is reported as `KERNEL_CONTRACT`, but
 once the runner has started the effect is still `unknown`.
 
+Writes automatically end their text output with an `outcome:` line containing
+success/failure, effect and recovery. Add domain state when a write can have
+different results, including the reason it was held:
+
+```ts
+result: {
+  ok: true,
+  data: { request },
+  outcome: { state: 'pending_approval', id: request.id, reason: 'A reviewer must approve this change.' },
+  instruction: instruction('approval', 'End your turn and wait for approval.'),
+}
+```
+
+The entire `outcome` object must fit 256 serialized bytes. It stays inline in text
+and JSON even when the body goes to an artifact. `instruction:` follows the outcome
+as the final line; hints remain advisory. For a read-only check or job-status
+command, declare `presentation: 'outcome'` to get the same verdict-last ordering.
+Ordinary reads default to `presentation: 'query'`, with their authored outcome
+digest (if any) before the primary body. Generated validation twins already use
+outcome presentation; `prepare` can supply their domain outcome.
+
 ### Structured read
 
 The [answer-check handler](../../examples/local-workspace/answer.handler.ts) shares

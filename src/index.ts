@@ -13,7 +13,7 @@ export type {
   AnyCommitReport, AnyEnvelope, AnyFailure, AnyResult, AnySuccess,
   CliError, CommitReport, Effect, Envelope, ErrorCatalog,
   ErrorDefinitions, FamilyCode, KernelCode, ErrorOptions, ExitClass, ExitCode, Failure, Issue, OperationEffect, SuccessfulEffect, WriteEffect, OperationOutcome, CompactRecovery, ReportedRecovery, UnknownAcknowledgment, RecoveryReference, ResponseError, SecondaryFailure,
-  Preparation, Prepared, Result, Success,
+  Preparation, Prepared, Result, Success, Outcome,
 } from "./results.js";
 export { page, elide, binaryArtifact } from "./disclosure.js";
 export type { AnyPayload, AnyBinaryArtifactRequest, BinaryArtifactRequest, ArtifactManifest, ArtifactPolicy, Elision, ResolvedArtifactPolicy, Omission, Page, Payload, Total } from "./disclosure.js";

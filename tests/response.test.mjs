@@ -23,7 +23,7 @@ function batch(values, issues = []) {
 }
 const arb = (handler = {}, evaluated, conflictSink = () => {}) => arbitrate({ commandPath: "inspect", handler, ...(evaluated ? { evaluated } : {}), conflictSink });
 const recovery = recoveryFacts([{ kind: "receipt", id: "r-1" }]);
-const execution = (result = { ok: true, data: { id: "r-1" } }, operation = { effect: "applied", recovery }) => ({ result, operation, renderPrimary: () => "Saved r-1" });
+const execution = (result = { ok: true, data: { id: "r-1" } }, operation = { effect: "applied", recovery }) => ({ result, operation, presentation: operation.effect === 'read' ? 'query' : 'outcome', renderPrimary: () => "Saved r-1" });
 const assemble = (report, guidance, secondary = []) => assembleResponse(report, { guidance, doctor, executable: "tool", secondary });
 
 test("one arbiter suppresses hints under required instructions", async () => {
@@ -198,7 +198,7 @@ test("domain failure stays primary under renderer failure and routes coherently 
   assert.match(text.stderr, /^error: OFFLINE: Disconnected\nwhy: The service is unavailable\.\n/);
   assert.ok(text.stderr.indexOf("doctor: tool doctor") < text.stderr.indexOf("continuation: tool inspect"));
   assert.ok(text.stderr.indexOf("issue: NETWORK") < text.stderr.indexOf("reminder:"));
-  assert.ok(text.stderr.endsWith("reminder: Keep lease valid.\ninstruction: Stop now.\n"));
+  assert.match(text.stderr, /reminder: Keep lease valid\.\noutcome: failed; exit: connection; code: OFFLINE; effect: unknown;.*\ninstruction: Stop now\.\n$/);
   const json = renderResponse(response, "json");
   assert.equal(json.stderr, "");
   assert.equal(json.exitCode, 3);

@@ -70,6 +70,7 @@ export function projectHelp<Contexts>(cli: Cli<Contexts>, path: string): HelpNod
     usage: [usage], children, related, flags, arguments: args, skills: metadata?.skills ?? [], sections: metadata?.sections ?? [],
     dynamicHelp: metadata?.dynamicHelp === true, flows,
     ...(spec ? { effects: node.kind === "validation" ? "read" as const : spec.effects,
+      presentation: node.kind === "validation" || spec.effects === "write" ? "outcome" as const : spec.presentation ?? "query",
       levels: Object.fromEntries(Object.entries(model!.selectors).map(([name, selectors]) => [name, { selectors, output: spec.levels![name]!.output }])),
       ...(spec.payload ? { payload: spec.payload } : {}), ...(spec.output ? { output: spec.output } : {}) } : {}),
   }), examples: Object.freeze(examples) });
@@ -84,6 +85,7 @@ export function renderHelp<Contexts>(cli: Cli<Contexts>, path: string, documente
   const lines = [node.summary, ...(node.description && node.description !== node.summary ? [node.description] : []), "", ...node.usage.map(usage => `Usage: ${usage}`)];
   const section = (title: string, rows: readonly string[]): void => { if (rows.length) lines.push("", `${title}:`, ...rows); };
   if (node.effects) section("Effects", [node.effects]);
+  if (node.presentation) section("Presentation", [node.presentation]);
   section("Commands", node.children.filter(child => !documented || documented.has(child.path)).map(child => `${name} ${child.path} — ${child.summary}`));
   section("Arguments", node.arguments.map(arg => `${arg.name}${arg.variadic ? "..." : ""} — ${arg.description} (${arg.required ? "required" : "optional"}; ${describeValue(arg.value)}${arg.default !== undefined ? `; default: ${JSON.stringify(arg.default)}` : ""})`));
   const sharedNames = new Set(path ? projectHelp(cli, "").flags.map(flag => flag.name) : []);

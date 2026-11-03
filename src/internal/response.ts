@@ -113,6 +113,7 @@ export type AssembledResponse = Brand<"AssembledResponse"> & {
   readonly guidance: FinalGuidance;
   readonly primaryText: string;
   readonly executable: string;
+  readonly presentation: "query" | "outcome";
   readonly binary?: AnyBinaryArtifactRequest;
 };
 /** Runtime calls this after release; artifact-delivery consumes the result as-is. */
@@ -157,7 +158,9 @@ export async function assembleResponse(execution: ExecutionResult, options: {
     } catch { failures.push({ code: "KERNEL_OUTPUT", message: "Primary rendering failed." }); }
   }
   const texts = guidance.reminders.map(value => value.text);
-  const wire: WireGuidance = { reminders: texts[0] ? texts[1] ? [texts[0], texts[1]] : [texts[0]] : [],
+  const wire: WireGuidance & { readonly outcome?: import("../results.js").Outcome } = {
+    ...(result.outcome ? { outcome: result.outcome } : {}),
+    reminders: texts[0] ? texts[1] ? [texts[0], texts[1]] : [texts[0]] : [],
     ...(guidance.instruction ? { instruction: guidance.instruction.text } : guidance.hint
       ? { hint: `${guidance.hint.action}: ${renderReference(guidance.hint.invocation, options.executable)}` } : {}) };
   const payload = data !== undefined ? { payload: { kind: "inline" as const, data } } : {};
@@ -194,6 +197,7 @@ export async function assembleResponse(execution: ExecutionResult, options: {
     envelope = frozenJson({ ok: true, ...operation, payload: { kind: "inline", data }, ...wire, issues });
   }
   return Object.freeze({ envelope: decodeWireEnvelope(envelope), guidance, primaryText, executable: options.executable,
+    presentation: execution.presentation,
     ...(result.binary ? { binary: result.binary } : {}) }) as AssembledResponse;
 }
 
@@ -205,6 +209,9 @@ export function renderResponse(response: AssembledResponse, format: "text" | "js
   const exitCode = envelope.ok ? 0 : ({ failed: 1, usage: 2, connection: 3, version: 4 } as const)[envelope.error.exitClass];
   if (format === "json") return { stdout: `${JSON.stringify(envelope)}\n`, stderr: "", exitCode };
   const lines: string[] = [];
+  const finalOutcome = !envelope.ok || response.presentation === "outcome";
+  const verdict = outcomeLine(envelope);
+  if (!finalOutcome && envelope.outcome) lines.push(verdict);
   if (!envelope.ok) {
     const error = envelope.error;
     // A rationale identical to the message adds no information; JSON retains it.
@@ -216,11 +223,6 @@ export function renderResponse(response: AssembledResponse, format: "text" | "js
         ? `${label} argv: ${JSON.stringify(referenceTokens(reference, reference.passthrough !== undefined))}`
         : `${label}: ${renderReference(reference, executable)}`);
     }
-    lines.push(`effect: ${envelope.effect}`);
-    if (envelope.recovery) lines.push(`recovery: ${compactText(envelope.recovery)}`);
-  }
-  if (envelope.ok && envelope.effect === "applied") {
-    lines.push(`effect: ${envelope.effect}`, `recovery: ${compactText(envelope.recovery)}`);
   }
   if (response.primaryText) lines.push(response.primaryText);
   const issues = envelope.ok ? envelope.issues : envelope.error.issues ?? [];
@@ -230,10 +232,24 @@ export function renderResponse(response: AssembledResponse, format: "text" | "js
     for (const secondary of envelope.error.secondary) lines.push(`secondary: ${secondary.code}: ${lineText(secondary.message)}`);
   }
   for (const reminder of envelope.reminders) lines.push(`reminder: ${lineText(reminder)}`);
+  if (envelope.hint) lines.push(`hint: ${envelope.hint}`);
+  if (finalOutcome) lines.push(verdict);
   if (envelope.instruction) lines.push(`instruction: ${lineText(envelope.instruction)}`);
-  else if (envelope.hint) lines.push(`hint: ${envelope.hint}`);
   const text = lines.length ? `${lines.join("\n")}\n` : "";
   return envelope.ok ? { stdout: text, stderr: "", exitCode } : { stdout: "", stderr: text, exitCode };
+}
+
+/** All classifications are readable without the shell's exit status. Domain state
+ * stays separate: an applied write may have saved a request awaiting approval. */
+function outcomeLine(envelope: AnyEnvelope): string {
+  return [`outcome: ${envelope.ok ? "success" : "failed"}`,
+    ...(!envelope.ok ? [`exit: ${envelope.error.exitClass}`, `code: ${envelope.error.code}`] : []),
+    `effect: ${envelope.effect}`,
+    ...(envelope.recovery ? [`recovery: ${compactText(envelope.recovery)}`] : []),
+    ...(envelope.outcome ? [`state: ${lineText(envelope.outcome.state)}`,
+      ...(envelope.outcome.id ? [`id: ${lineText(envelope.outcome.id)}`] : []),
+      ...(envelope.outcome.reason ? [`reason: ${lineText(envelope.outcome.reason)}`] : [])] : []),
+  ].join("; ");
 }
 
 function assertPrimaryText(value: unknown): asserts value is string {
@@ -241,7 +257,7 @@ function assertPrimaryText(value: unknown): asserts value is string {
     throw new TypeError("Primary text contains controls or is not text.");
 }
 function neutralizeReservedLabels(value: string): string {
-  return value.replace(/(^|\n)(?=\s*(?:hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|notice|artifact):)/gi, "$1| ");
+  return value.replace(/(^|\n)(?=\s*(?:outcome|hint|reminder|instruction|error|issue|why|doctor(?: argv)?|continuation(?: argv)?|secondary|effect|recovery|details|notice|artifact):)/gi, "$1| ");
 }
 
 /** Escape prose/JSON display fields only; never rewrite a shell invocation. */

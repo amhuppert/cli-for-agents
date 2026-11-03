@@ -23,7 +23,9 @@ export type KernelCode = keyof typeof kernelErrors;
 export const protocolLimits = Object.freeze({
   defaultOutput: 32768, minimumOutput: 8192, instruction: 1024,
   reminders: 1024, recovery: 1024, references: 1024, manifest: 2048,
-  diagnosticSummary: 512,
+  diagnosticSummary: 512, outcome: 256,
+  /** Optional error detail beyond this stays in a complete response artifact. */
+  errorDetailLines: 4, errorDetailBytes: 2048,
   /** A command's payload examples together, so help with them stays inline. */
   payloadExamples: 4096,
 } as const);
@@ -37,6 +39,23 @@ export type Issue = {
   readonly message: string;
   readonly path?: readonly (string | number)[];
 };
+/** Domain state, independent of whether the command succeeded or a write took effect.
+ * State the reached state and why (for example pending_approval); immediate actions
+ * belong in instruction. The complete object is limited to protocolLimits.outcome. */
+export type Outcome = {
+  readonly state: string;
+  readonly id?: string;
+  readonly reason?: string;
+};
+/** Shared admission for handler reports and wire envelopes. */
+export function checkOutcome(value: unknown): asserts value is Outcome {
+  assertRecord(value);
+  assertFields(value, ["state"], ["id", "reason"]);
+  assertText(value["state"]);
+  if (Object.hasOwn(value, "id")) assertText(value["id"]);
+  if (Object.hasOwn(value, "reason")) assertText(value["reason"]);
+  assertSerializedLimit(value, protocolLimits.outcome);
+}
 export type ErrorOptions = {
   readonly message: string;
   /** One sentence explaining the restriction, shown only on refusal. */
@@ -159,6 +178,7 @@ function assertIssues(value: unknown): void {
 }
 
 type HandlerOnly = {
+  readonly outcome?: Outcome;
   readonly reminders?: never;
   readonly payload?: never;
   readonly effect?: never;
@@ -200,7 +220,7 @@ export type Prepared<Path extends string, Data> = Brand<"Prepared", Path> & {
 /** The value stays opaque and reaches only commit. A validation twin returns the optional
  * JSON-safe preview and successful guidance; a refusal applies to check and write alike. */
 export type Preparation<Data, Code extends string = string, Preview = JsonValue> =
-  | ({ readonly ok: true; readonly value: Data; readonly preview?: JsonData<Preview>; readonly error?: never } & HandlerGuidance)
+  | ({ readonly ok: true; readonly value: Data; readonly preview?: JsonData<Preview>; readonly outcome?: Outcome; readonly error?: never } & HandlerGuidance)
   | (Failure<never, Code> & { readonly value?: never; readonly preview?: never });
 
 /** Only app-reported identifiers may claim durable recovery; never synthesize an ID. */
@@ -255,7 +275,7 @@ export type OperationOutcome<Code extends string = string> =
   | { readonly result: AnySuccess; readonly operation: SuccessfulEffect }
   | { readonly result: AnyFailure<Code>; readonly operation: OperationEffect };
 
-type EnvelopeShape<Body> = Brand<"Envelope"> & WireGuidance & { readonly why?: never } & (
+type EnvelopeShape<Body> = Brand<"Envelope"> & WireGuidance & { readonly why?: never; readonly outcome?: Outcome } & (
   | ({ readonly ok: true; readonly payload: Body; readonly issues: readonly Issue[]; readonly error?: never } & SuccessfulEffect)
   | ({ readonly ok: false; readonly payload?: Body; readonly error: ResponseError; readonly issues?: never } & OperationEffect)
 );
@@ -270,7 +290,8 @@ export function decodeWireEnvelope(value: unknown): AnyEnvelope {
   const ok = envelope["ok"];
   if (typeof ok !== "boolean") throw new TypeError("Expected envelope status.");
   assertFields(envelope, ["ok", "effect", "reminders", ...(ok ? ["payload", "issues"] : ["error"])],
-    ["recovery", "hint", "instruction", ...(!ok ? ["payload"] : [])]);
+    ["recovery", "hint", "instruction", "outcome", ...(!ok ? ["payload"] : [])]);
+  if (Object.hasOwn(envelope, "outcome")) checkOutcome(envelope["outcome"]);
   const effect = envelope["effect"];
   if (effect === "read" || effect === "not_applied") {
     if (Object.hasOwn(envelope, "recovery") || ok && effect !== "read") throw new TypeError("Invalid effect recovery.");

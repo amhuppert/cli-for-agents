@@ -29,6 +29,9 @@ Usage: reference-fixture doctor [options]
 Effects:
 read
 
+Presentation:
+query
+
 Global flags: reference-fixture --help
 
 Examples:
@@ -57,6 +60,9 @@ Usage: reference-fixture records show <id> [options]
 
 Effects:
 read
+
+Presentation:
+query
 
 Arguments:
 id — Record ID (required; string)
@@ -95,6 +101,9 @@ Usage: reference-fixture records validate --file <path> [options]
 Effects:
 read
 
+Presentation:
+outcome
+
 Global flags: reference-fixture --help
 
 Flags:
@@ -123,6 +132,9 @@ Usage: reference-fixture records write --file <path> [options]
 
 Effects:
 write
+
+Presentation:
+outcome
 
 Global flags: reference-fixture --help
 

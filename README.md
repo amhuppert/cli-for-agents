@@ -38,12 +38,25 @@ cctl validate run test --scope full --queue-if-busy
 ```
 
 Build emits `dist`. Typecheck runs ten isolated positive compiler programs before
-negative misuse fixtures. Test compiles first and runs all 23 test files with one
+negative misuse fixtures. Test compiles first and runs all test files with one
 worker. In a behavior change's red/green loop, select one exact file:
 
 ```sh
 cctl validate run test --queue-if-busy -- tests/execution.test.mjs
 ```
+
+The wrappers can also run directly:
+
+```sh
+bash scripts/validate/typecheck.sh
+bash scripts/validate/build.sh
+bash scripts/validate/test.sh
+bash scripts/validate/test.sh --test-name-pattern='outcomes survive' tests/outcomes.test.mjs
+```
+
+Tests print a count summary on success and complete diagnostics on failure. An
+empty selection or a filter that executes no tests fails. Explicit file paths
+are checked before compilation; quote each path and the test-name pattern.
 
 `CommandCenter.json` registers these commands; `cctl validate list` shows the live
 registry. Full distribution tests require the Node 20, Node 24 and Bun 1 executables

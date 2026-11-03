@@ -27,6 +27,7 @@ export type ExecutionResult<Code extends string = string> = OperationOutcome<Cod
   readonly renderPrimary: () => string;
   /** Help, version and exit-code text is framework output, not a handler primary. */
   readonly offline: boolean;
+  readonly presentation: "query" | "outcome";
 };
 /** Uses only registry path and the already-computed payload hash; no durable ID is invented. */
 export function unknownAcknowledgment<Contexts, Code extends string, G extends Readonly<Record<string, Flag>>>(invocation: ParsedInvocation<Contexts, Code, G>, payloadHash?: Sha256): UnknownAcknowledgment {
@@ -95,14 +96,15 @@ function secretValues(model: InputModel, values: readonly Readonly<Record<string
     .filter((value): value is string => typeof value === "string")
     .flatMap(value => [value, value.trim(), value.replace(/\s+/gu, " ").trim()]).filter(Boolean);
 }
-function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => "", offline = false): ExecutionResult {
+function outcome(result: AnyResult, operation: OperationEffect, renderPrimary: () => string = () => "", offline = false,
+  presentation: "query" | "outcome" = operation.effect === "read" ? "query" : "outcome"): ExecutionResult {
   if (result.ok && operation.effect !== "read" && operation.effect !== "applied") throw new TypeError("Invalid successful effect.");
   // Result/effect correlation is checked at this sole execution provenance boundary.
-  return Object.freeze({ result, operation: Object.freeze(operation), renderPrimary, offline }) as ExecutionResult;
+  return Object.freeze({ result, operation: Object.freeze(operation), renderPrimary, offline, presentation }) as ExecutionResult;
 }
 /** Composition may repair optional references while preserving the observed operation. */
 export function withExecutionResult(execution: ExecutionResult, result: AnyResult): ExecutionResult {
-  return outcome(result, execution.operation, execution.renderPrimary, execution.offline);
+  return outcome(result, execution.operation, execution.renderPrimary, execution.offline, execution.presentation);
 }
 /** Offline routes have no application operation; reuse the execution outcome owner. */
 export function offlineExecution(data: JsonValue, render: () => string): ExecutionResult {
@@ -122,10 +124,11 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
   contexts: ContextProviders<Contexts, D, G>, postOperation: PostOperationHook<Contexts>,
 ): Promise<CompletedExecution<FamilyCode<D>>> {
   const spec = invocation.command.spec;
+  const presentation = invocation.validation || spec.effects === "write" ? "outcome" : spec.presentation ?? "query";
   const initial: OperationEffect = { effect: spec.effects === "write" && !invocation.validation ? "not_applied" : "read" };
   const errors = commandErrors(invocation.command);
   const local = await resolveLocalInput(invocation, request);
-  const skipped = (result: AnyResult): CompletedExecution<FamilyCode<D>> => ({ execution: outcome(result, initial) as ExecutionResult<FamilyCode<D>>, secondary: [], postOperation: "skipped" });
+  const skipped = (result: AnyResult): CompletedExecution<FamilyCode<D>> => ({ execution: outcome(result, initial, undefined, false, presentation) as ExecutionResult<FamilyCode<D>>, secondary: [], postOperation: "skipped" });
   const resolved = local.ok ? local.input : invocation.input;
   const secrets = secretValues(commandData(invocation.command).model, [resolved.flags, resolved.globals]);
   const caught = (code: KernelCode, error: unknown): AnyResult => failure(code, undefined, undefined, thrownCause(error, secrets));
@@ -220,7 +223,7 @@ export async function execute<Contexts, D extends ErrorDefinitions, G extends Re
     result = request.signal.aborted ? failure("KERNEL_CANCELLED")
       : caught(error instanceof ContractError ? "KERNEL_CONTRACT" : "KERNEL_HANDLER", error);
   }
-  const execution = outcome(result, operation, render) as ExecutionResult<FamilyCode<D>>;
+  const execution = outcome(result, operation, render, false, presentation) as ExecutionResult<FamilyCode<D>>;
   const failures: SecondaryFailure[] = [];
   let facts: PostOperationFacts | undefined;
   try {

@@ -76,7 +76,7 @@ export type ArtifactManifest = Brand<"ArtifactManifest"> & {
   readonly mediaType: string;
   readonly bytes: Bytes;
   readonly sha256: Sha256;
-  readonly reason: "stdout_budget_exceeded" | "explicit_out" | "binary_request";
+  readonly reason: "stdout_budget_exceeded" | "diagnostics_exceeded" | "explicit_out" | "binary_request";
   readonly contains: "response" | "data" | "binary";
 };
 type PayloadShape<Data> =

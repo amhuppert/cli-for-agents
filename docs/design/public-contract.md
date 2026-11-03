@@ -179,6 +179,35 @@ successful operation with a conflict/output failure becomes exit 1 and retains
 known effect/recovery. `why` and failure issues occur only inside `error`;
 success diagnostics occur only in top-level `issues`.
 
+### Presentation and outcomes
+
+Read commands default to `presentation: 'query'`; read-only checks and job status
+commands declare `presentation: 'outcome'`. Writes and generated validation twins
+always use outcome presentation. Help discloses the effective presentation.
+
+A result or preparation may supply `outcome: { state, id?, reason? }`, at most 256
+serialized UTF-8 bytes for the whole object. It describes the reached domain state,
+independently of `ok` and `effect`: saving a request can succeed with `effect:
+'applied'` and `state: 'pending_approval'`. Include the actual identifier and reason
+when relevant. Immediate obligations still belong in `instruction`, not `reason`
+or `hint`. Preparation outcomes appear on the validation twin (or on refusal);
+commit reports supply the write's actual outcome.
+
+Text queries lead with an authored outcome digest when present, then primary text,
+issues, reminders and hint. Other successful commands put primary text and issues
+first, followed by reminders, hint, and one `outcome:` line. Failures keep their
+actionable `error:` line first and also end with an outcome. The final outcome names
+success/failure, the failure exit class/code, effect, recovery identifiers, and any
+authored domain state. `instruction:` is always last when present. A generic
+success/failure outcome is derived from existing envelope facts when the handler
+does not supply domain state; no domain identifier is invented. JSON carries the
+same facts in `ok`, `error`, `effect`, `recovery`, and optional `outcome`.
+
+Outcome state survives response spilling, explicit output, and delivery failures.
+Custom primary renderers cannot spoof the reserved `outcome:` label. Update tests
+that expected standalone `effect:`/`recovery:` lines before the body; these facts now
+appear together in the final outcome line.
+
 Handlers author one hint or instruction. Rules evaluate pure synchronous
 predicates in the CLI process, returning candidates, provenance and firing events.
 They do not arbitrate handler guidance. Sources with rules require a firing sink;
@@ -216,6 +245,7 @@ execution. Protocol limits are measured as serialized JSON:
 | Compact recovery | 1,024 |
 | Doctor/continuation references combined | 1,024 |
 | Artifact manifest | 2,048 |
+| Domain outcome | 256 |
 
 Oversized mandatory input is contract-invalid. Valid bounded required guidance and
 known recovery survive artifact failure; optional detail spills or is explicitly
@@ -232,6 +262,14 @@ stay while they fit, and the complete response artifact holds any that must be
 dropped. A failed primary response spills the same way and keeps its classification.
 Explicit `--out` and binary receipts carry no spill metadata. The decoder requires
 spill metadata exactly on `stdout_budget_exceeded` manifests.
+
+Text errors also spill optional detail beyond four lines or 2,048 bytes, even when
+the total response fits the byte budget. This uses `diagnostics_exceeded` when the
+byte budget was not exceeded. The artifact contains the complete JSON response, so
+inspection never requires rerunning a mutation. Inline text names the artifact and
+retains the error, guidance, effect, recovery and outcome; if storage fails, it
+explicitly reports the omission. Small secondary diagnostics stay intact. JSON
+output retains full diagnostics until the normal byte budget requires spilling.
 
 Artifact policy is explicit or resolved from environment/app state before release.
 Delivery prepares it only when a response needs an artifact: it canonicalizes the

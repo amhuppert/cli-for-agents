@@ -1,5 +1,5 @@
 import type { AnyResult, ErrorCatalog, ErrorDefinitions, OperationEffect, ReportedRecovery } from "../results.js";
-import { checkedError, kernelError, recoveryFacts } from "../results.js";
+import { checkedError, checkOutcome, kernelError, recoveryFacts } from "../results.js";
 import { hint, instruction } from "../guidance/index.js";
 import type { HandlerGuidance } from "../guidance/index.js";
 import type { AnyBinaryArtifactRequest } from "../disclosure.js";
@@ -20,11 +20,12 @@ export function checkedResult(value: unknown, errors: ErrorCatalog<ErrorDefiniti
   }
   const result = frozenJson(raw); assertRecord(result);
   if (result["ok"] === true) {
-    assertFields(result, ["ok", ...(binaryRequest ? [] : ["data"])], ["issues", "hint", "instruction"]);
+    assertFields(result, ["ok", ...(binaryRequest ? [] : ["data"])], ["issues", "hint", "instruction", "outcome"]);
     if (Object.hasOwn(result, "issues")) kernelError("KERNEL_CONTRACT", { message: "Validate diagnostics.", issues: result["issues"] as readonly import("../results.js").Issue[] });
   } else if (result["ok"] === false && !binaryRequest) {
-    assertFields(result, ["ok", "error"], ["data", "hint", "instruction"]);
+    assertFields(result, ["ok", "error"], ["data", "hint", "instruction", "outcome"]);
   } else throw new TypeError("Invalid result discriminant.");
+  if (Object.hasOwn(result, "outcome")) checkOutcome(result["outcome"]);
   const guidance = checkedGuidance(result);
   const checked = { ...result, ...guidance, ...(binaryRequest ? { binary: binaryRequest } : {}),
     ...(result["ok"] === false ? { error: checkedError(result["error"], errors) } : {}) };
@@ -79,17 +80,21 @@ export function checkedWrite(value: Readonly<Record<string, unknown>>, operation
 export function checkedPreparation(value: unknown, errors: ErrorCatalog<ErrorDefinitions>): import("../results.js").Preparation<unknown> {
   const prepared = executableRecord(value);
   if (prepared["ok"] === true) {
-    assertFields(prepared, ["ok", "value"], ["preview", "hint", "instruction"]);
+    assertFields(prepared, ["ok", "value"], ["preview", "hint", "instruction", "outcome"]);
     const { ok: _ok, value: opaque, ...visible } = prepared;
     const checked = frozenJson(visible);
-    return { ok: true, value: opaque, ...(Object.hasOwn(checked, "preview") ? { preview: checked["preview"] as JsonValue } : {}), ...checkedGuidance(checked) };
+    const outcome = checked["outcome"];
+    if (outcome !== undefined) checkOutcome(outcome);
+    return { ok: true, value: opaque, ...(Object.hasOwn(checked, "preview") ? { preview: checked["preview"] as JsonValue } : {}),
+      ...(outcome !== undefined ? { outcome } : {}), ...checkedGuidance(checked) };
   }
   if (prepared["ok"] === false) {
-    assertFields(prepared, ["ok", "error"], ["hint", "instruction"]);
+    assertFields(prepared, ["ok", "error"], ["hint", "instruction", "outcome"]);
     const result = checkedResult(prepared, errors, false);
     if (result.ok) throw new TypeError("Expected a preparation refusal.");
-    if (result.instruction) return { ok: false, error: result.error, instruction: result.instruction };
-    return { ok: false, error: result.error, ...(result.hint ? { hint: result.hint } : {}) };
+    const outcome = result.outcome ? { outcome: result.outcome } : {};
+    if (result.instruction) return { ok: false, error: result.error, ...outcome, instruction: result.instruction };
+    return { ok: false, error: result.error, ...outcome, ...(result.hint ? { hint: result.hint } : {}) };
   }
   throw new TypeError("Invalid preparation result.");
 }

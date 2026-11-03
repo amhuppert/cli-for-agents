@@ -29,15 +29,18 @@ run_captured() {
 run_captured node "--max-old-space-size=${TEST_HEAP_MB}" \
   "$TEST_WRAPPER_DIR/test-launcher.mjs" "$TEST_CAPTURE_DIR/paths" "$@"
 
-TEST_FILES=()
-while IFS= read -r -d '' TEST_FILE; do
-  TEST_FILES+=("$TEST_FILE")
+TEST_ARGS=()
+while IFS= read -r -d '' TEST_ARG; do
+  TEST_ARGS+=("$TEST_ARG")
 done <"$TEST_CAPTURE_DIR/paths"
 
-if [ "${#TEST_FILES[@]}" -eq 0 ]; then
+if [ "${#TEST_ARGS[@]}" -lt 2 ]; then
   echo "test: launcher produced an empty test inventory." >&2
   exit 2
 fi
 
-run_captured node "--max-old-space-size=${TEST_HEAP_MB}" \
-  --test "--test-concurrency=${TEST_WORKERS}" -- "${TEST_FILES[@]}"
+TEST_STATUS=0
+node "--max-old-space-size=${TEST_HEAP_MB}" \
+  --test --test-reporter=tap "--test-concurrency=${TEST_WORKERS}" "${TEST_ARGS[@]}" \
+  >"$TEST_CAPTURE_DIR/diagnostics" 2>&1 || TEST_STATUS=$?
+node "$TEST_WRAPPER_DIR/test-summary.mjs" "$TEST_CAPTURE_DIR/diagnostics" "$TEST_STATUS"

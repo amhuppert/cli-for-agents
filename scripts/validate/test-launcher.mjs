@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const TEST_HEAP_MB = 1024;
-const [manifestPath, ...requestedPaths] = process.argv.slice(2);
+const [manifestPath, ...arguments_] = process.argv.slice(2);
 const root = realpathSync(process.cwd());
 
 function fail(message) {
@@ -50,6 +50,19 @@ function inventory(directory, files = []) {
 
 try {
   if (!manifestPath) fail("missing wrapper-owned manifest path");
+  const requestedPaths = [];
+  let pattern;
+  let positional = false;
+  for (let index = 0; index < arguments_.length; index++) {
+    const arg = arguments_[index];
+    if (!positional && arg === '--') { positional = true; continue; }
+    if (!positional && (arg === '--test-name-pattern' || arg.startsWith('--test-name-pattern='))) {
+      if (pattern !== undefined) fail('supply --test-name-pattern only once');
+      pattern = arg === '--test-name-pattern' ? arguments_[++index] : arg.slice('--test-name-pattern='.length);
+      if (!pattern) fail('--test-name-pattern requires a nonempty regular expression');
+      new RegExp(pattern);
+    } else requestedPaths.push(arg);
+  }
   let files;
   if (requestedPaths.length > 0) {
     files = [...new Set(requestedPaths.map(exactTestFile))];
@@ -80,7 +93,8 @@ try {
     if (compile.signal) process.stderr.write(`test: TypeScript ended with ${compile.signal}\n`);
     process.exitCode = compile.status ?? 1;
   } else {
-    writeFileSync(manifestPath, `${files.join("\0")}\0`, { flag: "wx", mode: 0o600 });
+    const runnerArgs = [...(pattern === undefined ? [] : [`--test-name-pattern=${pattern}`]), '--', ...files];
+    writeFileSync(manifestPath, `${runnerArgs.join("\0")}\0`, { flag: "wx", mode: 0o600 });
   }
 } catch (error) {
   process.stderr.write(`test: ${error instanceof Error ? error.message : String(error)}\n`);

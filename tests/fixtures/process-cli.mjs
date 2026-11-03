@@ -23,6 +23,6 @@ const cli = createCli({ name: 'process-fixture', version: '1.2.3', family, comma
       await new Promise(resolve => setTimeout(resolve, 15));
       await record('release');
     } };
-  } }, output: { maxBytes: bytes(1048576), artifacts: { directory: '.', forbiddenRoots: [] } },
+  } }, output: { maxBytes: bytes(1048576), artifacts: { directory: process.env['PROCESS_ARTIFACT_DIR'] ?? '.', forbiddenRoots: [] } },
 });
 await main(cli, { compileCache: process.env['PROCESS_COMPILE_CACHE'] === '1' });

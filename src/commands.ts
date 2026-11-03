@@ -31,8 +31,12 @@ export type DisclosureLevel = {
   readonly output: "bounded" | "artifact-eligible";
 };
 export type CommandSpec = Metadata & InputSpec & { readonly requires: string; readonly output?: "binary" } & (
-  | { readonly effects: "read"; readonly levels?: Readonly<Record<string, DisclosureLevel>>; readonly payload?: PayloadDeclaration & { readonly validatePath?: never } }
-  | { readonly effects: "write"; readonly payload?: MutationPayloadDeclaration; readonly levels?: never }
+  | { readonly effects: "read";
+      /** Queries lead with their digest; checks/jobs opt into a final outcome. */
+      readonly presentation?: "query" | "outcome";
+      readonly levels?: Readonly<Record<string, DisclosureLevel>>;
+      readonly payload?: PayloadDeclaration & { readonly validatePath?: never } }
+  | { readonly effects: "write"; readonly presentation?: "outcome"; readonly payload?: MutationPayloadDeclaration; readonly levels?: never }
 );
 type PayloadTextFlag<S extends CommandSpec> = S extends { readonly payload: { readonly textInput: { readonly flag: infer F extends string } } } ? F : never;
 type PayloadTextNames<S extends CommandSpec> = PayloadTextFlag<S> | `${PayloadTextFlag<S>}-file`;

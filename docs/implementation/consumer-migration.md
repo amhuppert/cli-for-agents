@@ -33,6 +33,28 @@ Keep `--scripts` on publication and do not use bare `yalc push`; it defaults
 scripts off and would copy whatever `dist` happens to exist. yalc 1.0.0-pre.53 is
 the tested version.
 
+## Truncation-safe outcomes
+
+Writes and generated validation twins now put their outcome after details and
+advisory guidance, followed only by `instruction:`. Failures retain their error
+line first and repeat the classification in the final outcome. Update text
+assertions that expect leading `effect:` and `recovery:` lines; these facts are
+now fields of the final `outcome:` line. Query presentation remains the default
+for ordinary reads. Mark read-only checks and job-status commands with
+`presentation: 'outcome'` and regenerate help references.
+
+Return `outcome: { state, id?, reason? }` beside `ok` and `data`/`error` to name the
+actual domain result, especially applied versus held for approval. Keep the whole
+object within 256 serialized bytes. It survives artifact spills and failures;
+consumers with their own envelope validators must admit the optional field.
+Immediate obligations remain in `instruction`. No application migration is
+performed by this repository.
+
+Text errors with more than four optional detail lines or 2,048 detail bytes now
+spill full diagnostics to a response artifact. Admit the additional manifest
+reason `diagnostics_exceeded`; it carries no byte-budget `spill` metadata. Read
+the named artifact for complete diagnostics instead of repeating the operation.
+
 ## After cli-for-agents#4
 
 ### Breaking changes
