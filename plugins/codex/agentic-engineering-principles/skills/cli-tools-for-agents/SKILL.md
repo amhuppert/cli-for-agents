@@ -10,7 +10,9 @@ description: Design a purpose-built project CLI as the primary tool surface for
   migrating away from in-process tool servers, designing tool output and error
   contracts, deciding between text and JSON output for an agent- facing tool,
   designing a lint or check command that runs ahead of a gate, choosing severity
-  levels for findings, or deciding how agents should invoke project actions.
+  levels for findings, designing output that survives agents trimming it with
+  head or tail, guarding whole-document rewrites against lost updates, or
+  deciding how agents should invoke project actions.
 ---
 
 # CLI Tools for Agents
@@ -36,7 +38,7 @@ The primary consumer is a program that must branch on results, not a person read
 - No color dependence.
 - A structured `--json` envelope available on every command.
 
-**Format follows the consumer.** "The caller is a program" does not mean "output JSON": the agent branches on exit codes and *reads* the output, and an LLM reads compact line-oriented text more cheaply than JSON — structural keys and string-escaping cost tokens without adding meaning, and escaped multi-line content (stack traces, diffs) is harder to read, not easier. So:
+**Format follows the consumer.** "The caller is a program" does not mean "output JSON". The agent *reads* the output, and usually acts on that text rather than on the exit code ([How agents invoke tools](#how-agents-invoke-tools)). An LLM reads compact line-oriented text more cheaply than JSON — structural keys and string-escaping cost tokens without adding meaning, and escaped multi-line content (stack traces, diffs) is harder to read, not easier. So:
 
 - **Default output is terse, line-oriented text** with stable shapes (`<path>: <message>`, one fact per line) — not narrative prose, which is neither parseable nor skimmable.
 - **`--json` is opt-in, for output that feeds code** — a script, an orchestrator, a `jq` pipeline — never for the agent's own reading.
@@ -52,6 +54,18 @@ Format discipline alone is not enough: a read verb with perfect line-oriented te
 
 `query-output-disclosure` covers the escalation ladder and the pattern menu (detail levels, field selection, filtering, pagination, aggregation).
 
+## How agents invoke tools
+
+Agents bring shell habits learned on decades of build tools, and the habits outlast any instruction you write: a prose rule is the lowest rung of the enforcement ladder (`mechanical-guardrails`). In one real audit, a supervising agent sent 92 of its 102 invocations of the platform's CLI through `head`, `tail`, `grep` or `sed`, writes included, while the rule against it sat in a reference file the agent never loaded. Design the output so each habit is harmless instead of asking the agent to drop it.
+
+- **Agents trim with `head` and `tail`.** They read the top of query output and the bottom of everything else, because build tools print their verdict last. A read leads with its digest; a write, check or job ends with one outcome line stating the result, its identifier, and the next obligation if there is one. `agent-feedback-tiers` owns the full line order. In the same audit, `check … | tail -4` kept four receipt lines and cut the verdict printed above them, and the agent re-ran three checks to recover it.
+- **A pipe replaces the exit code.** `cmd | tail` exits with `tail`'s status, so a failure the agent never read looks like success, and `cmd | tail -3 || fallback` can never reach its fallback. Keep the exit-code taxonomy for scripts and harnesses, and state every outcome it encodes in the outcome line as well.
+- **The shell mangles arguments.** An unquoted variable holding 45 test paths reached the tool as one argument that named no file; the run matched nothing and reported a pass. Refuse an explicit path that does not exist, naming it. When the caller named its targets, zero matches is a failure, not a clean pass (`ai-readable-tool-output` covers the three states a verdict must separate).
+- **Agents guess verbs.** They call the command they expect to exist — a `list`, a `status` with no id — whether or not it does. An unknown-path error that lists the parent's children recovers the call (`progressive-disclosure-tooling`). The guess is also a demand signal: log unknown command paths and treat a recurring guess as a missing verb.
+- **Agents route around a sanctioned command that withholds what they need.** In the same audit, agents ran the test runner directly, outside a shared queue and its resource caps, to see test counts the quiet wrapper suppressed and to use the test-name filter the wrapper refused. Give the sanctioned command the count line and the filter instead of adding a prohibition.
+
+A one-line rule against trimming tool output still belongs in the always-loaded instructions, where every invocation is in scope (`agent-feedback-tiers` covers why a skill reference does not reach it). Expect it to reduce the habit, not end it.
+
 ## The exit-code taxonomy
 
 Reserve a small, stable set of exit codes that answer "whose fault is it?" from `$?` alone, without parsing text. Publish the table in the tool's help and skill doc so recovery advice can key off it.
@@ -65,6 +79,8 @@ Reserve a small, stable set of exit codes that answer "whose fault is it?" from 
 | 4 | Version mismatch (reserved; normally warn-only) | The deployment |
 
 Every exit-3 error message points at the `doctor` command (below) — one recovery entry point, not scattered advice.
+
+Agents often see the output rather than the exit code; see [How agents invoke tools](#how-agents-invoke-tools).
 
 ## Validate locally before any network round-trip
 
@@ -95,6 +111,12 @@ Pair every complex `create`/`replace` verb with a persist-nothing `validate` ver
 3. Agent edits the file and re-validates until clean.
 4. `yourcli thing create --file payload.json`.
 
+### Rewrites carry their base version
+
+When an agent replaces a whole document that something else can also change — a plan, a charter, shared configuration — the write states the version it started from, and the tool refuses a mismatch, naming the current version. Point the agent at the current document by path and version instead of pasting a copy into its instructions: a copy embedded in a queued message is a snapshot from when the message was composed, not from when the agent reads it.
+
+In one real system, two human approvals eleven seconds apart each queued a message embedding the same pre-approval copy of a document. An agent rewriting from the second copy would have produced a version without the first batch of approved changes, and nothing would have refused it. The agent caught the gap only by comparing the embedded copy with the file on disk.
+
 ## Preflight gated transitions
 
 The validate verb above is payload-scoped: one document, checked before one call. Its generalization is state-scoped. Wherever a command **gates a transition** — publish, merge, submit, promote, release, deploy — expose a read-only verb answering *what would refuse this right now*, callable at any point during the work rather than only at the moment of the attempt.
@@ -116,6 +138,8 @@ This is the finding-level counterpart to the obligation-based vocabulary in `age
 ### Mutations report their effect on the gate
 
 A write that changes gated state returns the blocking-finding count before and after it — `{ blockingBefore, blockingAfter }` in the envelope, a short line in text mode. The agent gets a closed feedback loop on every edit instead of a mutate → re-check → compare cycle, and an edit that silently makes things worse surfaces at the edit rather than at the transition.
+
+A write that can land in more than one state — applied, or held for a human's approval — names the state it reached and why. In one real system, a document write that its instructions promised would apply was held for approval instead; the receipt said only "pending approval", and the agent gave the human a wrong cause.
 
 ### Report both sides of the ledger, not just the deficit
 
@@ -182,7 +206,7 @@ When the only consumers of an output shape are agents plus a skill doc updated i
 ## Anti-patterns
 
 - **Prose-only errors.** An error the agent must parse with regex to branch on is a defect; give it an exit code and a `code` field.
-- **JSON-by-default output.** Defaulting the envelope on because "the caller is a program" — the agent branches on exit codes and reads text; JSON is for output that feeds code.
+- **JSON-by-default output.** Defaulting the envelope on because "the caller is a program" — the agent reads text; JSON is for output that feeds code.
 - **Dump-by-default query output.** A read verb that returns every record in full; the default is a bounded digest with drill-down, not the dataset.
 - **Inline mega-payloads.** Requiring a large JSON document as a quoted shell argument; one escaping error wastes the attempt.
 - **Fire-and-forget flags.** Detached operations whose failures nothing observes.
@@ -193,6 +217,9 @@ When the only consumers of an output shape are agents plus a skill doc updated i
 - **Interactive fallbacks.** Prompting on a TTY "for convenience" — agents hang on prompts.
 - **Dual-shape output for back-compat.** When consumers are agents plus a doc you control, replace cleanly.
 - **Ambiguous network errors for local mistakes.** A bad flag should never require a network round-trip to discover.
+- **Load-bearing lines in the middle.** A write's verdict printed first, where `| tail` cuts it, or a query's digest buried under detail, where `| head` misses it.
+- **A pass over explicit targets that matched nothing.** The caller named what to check; zero matches means the names were wrong.
+- **Blind whole-document rewrites.** Accepting a replacement with no base version, or handing the agent a pasted snapshot to edit.
 
 ## Related skills
 
@@ -202,3 +229,4 @@ When the only consumers of an output shape are agents plus a skill doc updated i
 - `ai-readable-tool-output` — configure linters, compilers, and test runners for low-noise agent consumption
 - `agent-offloading` — offload deterministic work from agents onto code; reserve agents for judgment
 - `designed-friction` — refusal rationale, ledger framing, and the designed-versus-defect taxonomy for agent-facing tools
+- `mechanical-guardrails` — the enforcement ladder, and why a prose rule is the weakest way to change an agent habit

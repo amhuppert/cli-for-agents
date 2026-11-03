@@ -1,6 +1,6 @@
 ---
 name: agent-feedback-tiers
-description: Define a three-tier feedback vocabulary — hint, reminders, instruction — for steering agents from tool output, with strict tier contracts and an evidence-gated admission rule for reminders. Use when designing tool output that guides agents, adding hints or reminders to a CLI or tool, deciding where mid-flow guidance belongs, or reviewing whether guidance text is in the right tier.
+description: Define a three-tier feedback vocabulary — hint, reminders, instruction — for steering agents from tool output, with strict tier contracts and an evidence-gated admission rule for reminders. Use when designing tool output that guides agents, ordering output lines so truncation keeps the load-bearing ones, adding hints or reminders to a CLI or tool, deciding where mid-flow guidance belongs, or reviewing whether guidance text is in the right tier.
 ---
 
 # Agent Feedback Tiers
@@ -25,7 +25,13 @@ The distinctions that matter:
 
 ## Rendering and envelope
 
-Fixed render order in text mode: **primary output → detail/issue lines → `reminder:` lines → `hint:` line.** The most load-bearing content comes first; the ignorable tier comes last.
+Fixed render order in text mode puts load-bearing lines at the ends, where truncation leaves them, and the skippable tiers in the middle. Agents often read output through `head` or `tail` — the top of a query, the bottom of everything else (`cli-tools-for-agents`):
+
+- **Query:** primary output (the digest) → detail lines → `reminder:` lines → `hint:` line.
+- **Write, check or job:** detail lines → `reminder:` lines → `hint:` line → outcome line → `instruction:` line.
+- **Error:** the actionable error line, then detail and issues, kept short enough that `tail` still reaches the error line.
+
+The `instruction:` line is always last. In one real audit, an agent ran its question-asking command as `… | tail -1` and still ended its turn as instructed, because the instruction was the final line.
 
 All three tiers are also carried in the structured `--json` envelope (`hint`, `reminders`, `instruction` fields alongside `error`/`issues`/`code`). Structured callers get the same guidance as text callers — tier content is never text-mode-only.
 
@@ -58,6 +64,8 @@ Discipline for hint authorship:
 - Hints are authored next to command definitions, so hint text cannot name commands that don't exist; the server sends facts, never client verb names.
 
 Hints are the **third discovery layer**: a one-line system-prompt nudge gets the agent to the skill doc, the skill doc gets it to the first command, and hints keep it on rails mid-flow without reloading anything.
+
+The middle layer is the unreliable one. An agent loads a skill when it starts the protocol the skill names, and otherwise works from the always-loaded prompt, `--help`, and the output in front of it. In one real audit, a supervising agent loaded only the skill for launching delegated runs, so a rule against trimming tool output, kept in another skill's reference file, never reached it across more than a hundred invocations. A rule that governs every invocation belongs in the always-loaded prompt or in the tool's behavior; skill docs carry protocol-specific procedure.
 
 ## The reminder admission rule
 

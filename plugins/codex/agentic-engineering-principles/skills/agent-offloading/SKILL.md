@@ -5,11 +5,12 @@ description: Covers the agent-offloading principle for AI-assisted development �
   iteration accounting, output parsing, message routing) from the agent onto
   code, and reserve the agent for judgment, language understanding, and code
   synthesis. Includes the division-of-labor table, decision heuristics,
-  orchestrator-owned fields, and typed side channels for agent-produced
-  artifacts. Use when designing an agent workflow or orchestration loop,
-  deciding whether a check belongs in a script or a prompt, tempted to ask an
-  agent to track its own iterations or decide when to halt, or when parsing
-  structured data out of agent response text.
+  orchestrator-owned fields, recovery after interrupted turns, and typed side
+  channels for agent-produced artifacts. Use when designing an agent workflow
+  or orchestration loop, deciding what resume does after an agent turn fails or
+  is interrupted, deciding whether a check belongs in a script or a prompt,
+  tempted to ask an agent to track its own iterations or decide when to halt,
+  or when parsing structured data out of agent response text.
 ---
 
 # Agent Offloading
@@ -72,6 +73,14 @@ The pattern:
 
 The model authors only judgment and content. The orchestrator owns every fact it can compute.
 
+## Recovery re-issues the interrupted step
+
+When an agent turn fails or is interrupted partway through a workflow, deciding what runs next is deterministic work. The orchestrator owns it; the supervisor — a person or a parent agent — decides only whether to resume.
+
+**Record the pending step before the attempt; clear it only on a settled result.** A resume that re-derives the next step from state the failed attempt already changed skips the work. In one real orchestrator, a fix turn retired the reviewed candidate as it began and then hit its time limit. `continue` found no candidate, no open tasks and an earlier settled turn, so it froze the half-fixed workspace and sent it to review under the previous turn's summary. This happened twice in one session, and both times only the reviewer caught it. Resume re-issues the interrupted step with its original reason and inputs, and tells the agent its last turn was cut short and why.
+
+**Name the stop reason and the limit that fired.** A halt that reads "aborted" when a configured time limit fired looks like a transient fault, and agents retry transient faults unchanged. In the same session, the supervising agent called a two-hour turn timeout transient, resumed without change, and the next work turn hit the same limit. Carry the reason (timeout, stall, user stop, shutdown, credential failure), the limit's value and where it is set, and the attempt's duration into the halt record and the message the supervisor reads. Record who cleared each halt, so a supervisor learns when someone else resumed its work.
+
 ## Typed side channels, not prose contracts
 
 Don't make free-form agent prose the contract. When an agent produces a structured artifact — a plan, a manifest, a registration — prefer a typed side channel over parsing the response text:
@@ -89,9 +98,12 @@ The prose response is commentary for whoever is reading along; the canonical art
 - **Omnibus prompts.** One prompt asking the agent to implement, verify, summarize, update the tracker, and decide next steps will do several of those badly. Split: the agent implements; code verifies, records state, and schedules what comes next.
 - **Retry policy in the prompt.** "If it fails, try again up to 3 times" makes the retry count invisible to the orchestrator. Retries are orchestrator state behind a circuit breaker, not an instruction to the model.
 - **LLM validators judging compilability.** Sending an agent to review code the deterministic gate would have rejected pays judgment prices for a mechanical answer.
+- **Resume that re-derives the next step.** Deciding what to run from state the failed attempt changed; the interrupted work is skipped and its unfinished result moves on.
+- **Anonymous stops.** "aborted" when a configured limit fired; the supervisor retries unchanged and hits the limit again.
 
 ## Related skills
 
 - `agent-structured-output` — reliable machine-readable agent output: small manifests, files for content, bounded repair
 - `cli-tools-for-agents` — design a project CLI as the agent tool surface: exit codes, file payloads, jobs, doctor
 - `mechanical-guardrails` — enforce conventions structurally with ratchets, tripwires, contract tests, and derived artifacts
+- `logging-for-agent-debugging` — the per-run forensic record where stop reasons and recovery decisions belong
