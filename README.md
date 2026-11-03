@@ -108,6 +108,21 @@ The remote test bundles the actual CLI and runs it against an ephemeral loopback
 service, including disconnect, cancellation, rule guidance and recovery.
 `examples/notebook` remains a compile-only type fixture with deliberate stubs.
 
+## Install the agentic-engineering-principles plugin
+
+The repository is a plugin marketplace for Claude Code and Codex. The Claude
+plugin lives in `plugins/claude/` and the Codex package in `plugins/codex/`;
+keep their skills in sync.
+
+```bash
+# Claude Code
+/plugin install agentic-engineering-principles --marketplace amhuppert/cli-for-agents
+
+# Codex, from a local checkout
+codex plugin marketplace add /path/to/cli-for-agents
+codex plugin add agentic-engineering-principles@cli-for-agents
+```
+
 ## Delivered scope
 
 Plain and structured reads, scalar and prepared payload writes, typed contexts,

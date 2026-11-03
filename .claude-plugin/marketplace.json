@@ -1,0 +1,14 @@
+{
+  "name": "cli-for-agents",
+  "description": "Agentic engineering principles for Claude Code",
+  "owner": {
+    "name": "Alex Huppert"
+  },
+  "plugins": [
+    {
+      "name": "agentic-engineering-principles",
+      "source": "./plugins/claude/agentic-engineering-principles-plugin",
+      "description": "Principles for building reliable agent workflows and tools"
+    }
+  ]
+}
