@@ -110,9 +110,20 @@ service, including disconnect, cancellation, rule guidance and recovery.
 
 ## Install the agentic-engineering-principles plugin
 
-The repository is a plugin marketplace for Claude Code and Codex. The Claude
-plugin lives in `plugins/claude/` and the Codex package in `plugins/codex/`;
-keep their skills in sync.
+The repository is a plugin marketplace for Claude Code and Codex. Author skills
+in `plugins/claude/agentic-engineering-principles-plugin/skills/`, including each
+skill's `agents/openai.yaml` metadata for Codex. With `skill-sync` installed on
+`PATH`, regenerate the Codex skills after source edits:
+
+```bash
+npm run plugin:sync
+```
+
+The script runs `skill-sync skills --override` against the plugin skill trees,
+converting frontmatter and copying support files. Codex skills are generated;
+edit the Claude source and rerun the script. Plugin manifests and marketplace
+entries remain separately maintained: `skill-sync plugin` emits a root
+`plugin.json`, whereas this repository uses `.codex-plugin/plugin.json`.
 
 ```bash
 # Claude Code
@@ -135,7 +146,7 @@ response actually needs an artifact.
 
 The package remains private and unpublished; owner-controlled projects consume
 local snapshots. Consumer migration/wire cutover,
-Commander replacement, plugin synchronization, optional HTTP/job/gate/identity/
+Commander replacement, optional HTTP/job/gate/identity/
 digest kits, live progress, streaming exports, interactive/ANSI/TTY behavior and
 raw stdout escape hatches are excluded. The pilots make no kb/cctl migration,
 SQLite, production deployment or crash-recovery claim.

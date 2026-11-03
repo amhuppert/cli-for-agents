@@ -1,131 +1,69 @@
 ---
 name: progressive-disclosure-tooling
-description: Structure a CLI or tool surface as a progressive-disclosure graph where every subcommand's --help is a self-contained mini-skill, and derive every guidance surface from one typed registry so documentation drift becomes structurally impossible. Use when writing --help text, designing tool help systems, organizing command documentation for agents, or fighting drift between help text, parsers, and skill docs.
+description: >-
+  Structure CLI and tool help as a pull-based progressive-disclosure graph
+  derived from a single typed command registry. Use when designing --help
+  output, organizing command documentation for agents, adding commands or
+  flags, or eliminating drift between parsers, help text, and skill docs.
 ---
 
 # Progressive-Disclosure Tooling
 
-Agents should discover a tool surface pull-based, node by node, instead of front-loading one large document. Make every subcommand a node in a disclosure graph whose `--help` is a self-contained mini-skill, and make every guidance surface — help text, flag allowlists, parser sets, usage, skill-doc references — a derivation from one typed registry. Hand-synced copies of the same facts will drift, and drift in agent-facing docs is worse than absence: it trains distrust.
+Expose tool documentation pull-based, node by node via `--help`, rather than front-loading a monolithic README. Every subcommand is a node in a disclosure graph, and every surface—help text, flag allowlists, parser sets, group dispatch, and skill-doc command tables—derives from one typed registry so documentation drift cannot compile.
 
-Help is the instruction side of a larger principle. The data real commands return follows the same pull-based rule — bounded digests with zoom-in handles instead of full dumps (`query-output-disclosure`) — and instruction disclosure is not confined to help: hints, usage errors, and omission lines in real command output are edges of the same graph.
+Help discloses instructions just as bounded query output discloses data (`query-output-disclosure`); hints, usage errors, and omission lines in command output form edges of the same graph.
 
-## The tool surface is a disclosure graph
+## Disclosure graph and node anatomy
 
-Every subcommand is a node. A node's `--help` is a mini-skill containing:
-
-- **Description** — 1–4 lines of what it does.
-- **Usage** — the invocation shapes.
-- **Flags** — command-specific flags only; global flags get one pointer line, never repeated per node.
-- **≥ 1 example** for every leaf node.
-- **Optional domain context** — ≤ 4 lines, only when a domain-model fact genuinely earns its place.
-- **Lateral edges** — related commands, each with a one-liner.
-- **Outbound edges to skill docs** — "load X when Y", so help routes the agent to deeper documentation exactly when it becomes relevant.
-
-Agents navigate the graph node by node via `--help`, pulling only what the current step needs.
-
-## Terse hubs, rich leaves
-
-- Group nodes render as indexes: their summary, one line per child, plus their own related/skills edges.
-- High-traffic nodes (top-level usage, group indexes) stay terse; richness lives at the leaves the agent deliberately navigates to. This keeps the token cost of graph-walking low.
-- Resolve help by longest-prefix match on the full positional path, so `tool group verb --help` lands on the leaf, not the group.
-- An unknown path under a matched parent fails with a usage error whose hint lists the parent's children — the error itself is a graph edge.
-
-## Examples earn their place
-
-An example that restates the usage line is noise. Examples exist to teach **failure-prone shapes**: range syntaxes, payload file shapes, ordering constraints ("always validate first — exit 2 lists issues one per line"). In one real review of agent tool usage, a range-syntax mistake was the #1 observed friction — that is what the example slot is for.
-
-## One vocabulary across hints, errors, and help
-
-Hints, error messages, and help text share one vocabulary. A hint that names a command must match that command's help node exactly; an error that suggests a flag must use the flag's registered name. Success/error hints form the chain edges of the same graph (`validate` → `create` → `start`; connection errors → `doctor`), so the agent experiences one coherent map, not three dialects.
+- **Terse hubs, rich leaves.** Render group nodes as compact indexes (summary, one line per child, related/skill edges). Keep top-level usage and group hubs terse so walking the graph is cheap; put full detail at leaf commands.
+- **Longest-prefix help resolution.** Resolve `--help` on the full positional path so `tool group verb --help` renders the leaf. When an unknown path is invoked under a matched parent, fail with a usage error listing the parent's valid children.
+- **Leaf `--help` contents:**
+  - **Description:** 1–4 lines stating what the command does.
+  - **Usage:** Invocation shapes.
+  - **Flags:** Command-specific flags only, plus one pointer line to global flags (never repeat global flags on every leaf).
+  - **Examples (≥ 1 per leaf):** Teach failure-prone shapes—range syntax, payload file structure, required `validate`-first ordering—never bare restatements of the usage line.
+  - **Domain context (optional):** ≤ 4 lines when a domain invariant matters at call time (`designed-friction`).
+  - **Lateral edges:** Related sibling commands with one-line descriptions.
+  - **Outbound skill edges:** `"load <skill> when <trigger>"` pointers to deeper reference docs.
+- **One shared vocabulary.** Author hints and error suggestions next to command definitions using registered command and flag names (`validate` → `create` → `start`; exit `3` → `doctor`) so guidance never names nonexistent commands.
 
 ## Single source of truth: the typed registry
 
-All command metadata lives in typed entries (path, summary, description, usage, flags with kinds, examples, domain context, related edges, skill refs), authored in colocated per-command files and aggregated centrally. The aggregator throws at module init on duplicate paths or a leaf whose parent group node is missing — a malformed registry fails every test run, not at runtime in an agent session.
+Store all command metadata (path, summary, description, usage, typed flags, examples, domain context, related edges, skill refs) in colocated per-command files and aggregate them centrally. Throw at module initialization on duplicate paths or leaves missing a parent group node.
 
-**Every surface derives from the registry:**
-
-| Derived surface | Instead of |
+| Derived surface | Replaces |
 |---|---|
-| Per-command help text | A hand-written help record |
-| Per-command flag allowlists | Hand-written arrays at each validation call site |
-| The parser's boolean-flag set | A hand-maintained constant |
-| Top-level usage | A hand-written usage string |
-| Group dispatch (valid verbs, "requires a subcommand" errors) | Hand-listed verbs per group module |
-| The generated command reference in the agent-facing skill doc | Manually synced doc sections |
+| Per-command `--help` text (and `--help --json` returning the raw registry entry) | Hand-written help strings or prose-in-JSON |
+| Per-command flag allowlists and parser boolean-flag sets | Hand-maintained arrays at validation/parser call sites |
+| Top-level usage and group dispatch (`valid verbs`, missing-subcommand errors) | Hand-listed verb tables per group module |
+| Command reference tables in agent-facing skill docs | Manually synced documentation sections |
 
-Hand-syncing any of these is a defect. In one real audit, a command accepted three flags its help never documented — the classic drift class. Because the allowlist *is* the registry after derivation, "the command accepts a flag help doesn't show" becomes structurally impossible. Don't build a sync test that compares two hand-written copies; derivation deletes the copy.
+## Adding a command and contract-testing against drift
 
-Group dispatch should derive a group's valid verbs from the registry's children and throw when its handler map disagrees with the registry — a verb wired into dispatch without an entry, or an entry with no handler, fails loudly.
+When adding or changing a command or flag:
 
-For structured callers, `--help --json` returns the registry entry itself (summary, usage, flags, examples, related edges, skill refs) rather than a rendered text blob — machine callers should never parse prose, and there is no need to pay for the text twice in the JSON path.
+1. Update the typed registry entry (including ≥ 1 example on leaves), wire flag validation through the registry, add bidirectional `related` edges and `skill` refs, and regenerate derived skill-doc tables.
+2. Enforce registry invariants in a contract test that fails the build on drift:
+   - Every dispatchable command path has a registry entry, and group dispatch handler maps match registry children exactly.
+   - Every entry has a non-empty summary, description, and usage; every leaf has ≥ 1 example.
+   - All top-level entries appear in top-level usage; all group nodes list every child.
+   - Every `related` command edge resolves to a registered entry, and every referenced skill-doc path exists on disk.
+   - No flag name is declared boolean in one entry and value-taking in another.
 
-## The add-a-command checklist
+## Infallible static help with bounded dynamic garnish
 
-When adding or changing a command, subcommand, or flag:
+`--help` is the agent's primary recovery path: compile static help into the binary from the same build as the flag parser so it works offline and unauthenticated, returns instantly, and **always exits `0`**.
 
-1. Add or update the typed registry entry (summary, description, usage, flags, ≥ 1 example for leaves).
-2. Wire flags through the registry — never a literal allowlist at a validation call site.
-3. Add related edges both ways: the new node points at siblings, and siblings point back where apt.
-4. Add skill-doc refs where a deeper doc materially helps (path contract-tested to exist).
-5. Run the registry contract test.
-6. Regenerate the derived command reference in the agent-facing skill doc; a check fails if it drifts.
+The server may append runtime state to `--help` (running dev servers, active task/iteration counts, existing artifacts) only under strict bounds:
 
-## Documentation drift is a contract-test failure
-
-Make a contract test the definition of "help is correct", not a review duty:
-
-1. Every dispatchable command path has a registry entry.
-2. Every leaf entry has ≥ 1 example; every entry has a non-empty summary, description, and usage.
-3. Every related-command edge resolves to a registry entry — no dangling graph edges.
-4. Every referenced skill-doc path exists on disk.
-5. No flag name is declared boolean in one entry and value-taking in another (parser-level constraint).
-6. Every top-level entry appears in the generated usage; group nodes list all their children.
-7. Dispatch and registry agree — disagreement throws, and the contract test drives every group node through dispatch.
-
-Failure of any assertion is the "help is wrong" signal. Agent-facing documentation rot becomes a red suite instead of a slow trust leak.
-
-## Help never fails
-
-Help is the recovery path — the thing an agent reaches for when something else went wrong. It must:
-
-- Work offline and unauthenticated.
-- Return instantly.
-- Exit 0, always.
-
-Compile durable content into the binary. Help must describe *this build's* parser — its flags must come from the same build as the flag parser, or help can lie about what the binary accepts. Fully server-rendered help breaks offline recovery and can skew against the binary; fully static help gives up context-awareness. Split it.
-
-## Dynamic context is server-rendered garnish
-
-The server may append a few blocks of current runtime state to help output (running dev servers, current task and iteration counts, existing artifacts). Constrain this hard:
-
-- Fetched best-effort with a short timeout (~500 ms).
-- Appended as clearly-marked context blocks after the static content.
-- **Any failure — no server, no auth, timeout, non-2xx, schema mismatch — silently omits the blocks.** Static help renders byte-identically, nothing is written to stderr, and the exit code is unchanged. Never train agents to fear `--help`.
-- Server-side provider failures are logged server-side; observability never lands in the agent's face.
-
-## High admission bar for dynamic context
-
-Unpredictable help is worse for agents than static help. Every provider adds a dependency to a surface that must stay boring:
-
-- Cap the block count and per-block length (e.g. ≤ 3 blocks of ~10 lines).
-- Providers return empty when they have nothing worth saying — absence of context must not render an empty section.
-- Providers are strictly read-only.
-- Defer new providers until a concrete need is observed in real usage; do not add them speculatively.
-
-## Anti-patterns
-
-- **One giant README as the tool's documentation.** Front-loads tokens the agent doesn't need yet and goes stale as a unit.
-- **Hand-synced copies of command facts.** Help, allowlists, parser sets, and skill docs maintained separately will drift; drift trains agents to distrust the docs.
-- **Examples that restate usage.** They spend the example slot without teaching anything.
-- **Hints naming commands that don't exist.** Author hints next to command definitions so the vocabulary can't skew.
-- **Help that depends on the server.** A failed fetch that changes help's exit code or writes to stderr breaks the recovery path.
-- **Speculative context providers.** Each one makes help less predictable; add only against observed need.
-- **Global flags repeated on every node.** Bloats every leaf; use one pointer line.
+- Read-only, best-effort fetch with a short timeout (~500 ms), capped at ≤ 3 clearly marked blocks of ~10 lines after static help.
+- Omit sections when providers return empty, and add providers only for observed agent needs.
+- **Silent fallback on any failure.** If the server is unreachable, unauthenticated, times out, returns non-2xx, or fails schema validation, log server-side only and render static help byte-identically with nothing on stderr and exit code `0`.
 
 ## Related skills
 
-- `cli-tools-for-agents` — design a project CLI as the agent tool surface: exit codes, file payloads, jobs, doctor
-- `query-output-disclosure` — the data side of disclosure: bounded query output, zoom-in handles, explicit omission
-- `agent-feedback-tiers` — hint/reminder/instruction output tiers and the reminder admission rule
-- `mechanical-guardrails` — enforce conventions structurally with ratchets, tripwires, contract tests, and derived artifacts
-- `earned-guidance-docs` — write agent guidance only when earned by real failures; root contract plus read-on-demand docs
+- `cli-tools-for-agents` — when designing the CLI's exit codes, file payloads, preflight checks, and `doctor` command
+- `query-output-disclosure` — when designing progressive disclosure for query data rather than help text
+- `agent-feedback-tiers` — when embedding chained `hint`, `reminders`, and `instruction` tiers in command output
+- `mechanical-guardrails` — when enforcing registry derivation and contract tests structurally
+- `earned-guidance-docs` — when structuring root `AGENTS.md` pointers and read-on-demand reference docs

@@ -1,232 +1,96 @@
 ---
 name: cli-tools-for-agents
-description: Design a purpose-built project CLI as the primary tool surface for
-  AI coding agents, instead of in-process tool or MCP servers. Covers text-by-
-  default output with opt-in --json (format follows the consumer), the exit-
-  code taxonomy, structured errors, file-based payloads with a validate verb,
-  preflight verbs for gated transitions with findings named by the transition
-  they block, job-shaped long operations, identity resolution, a doctor
-  self-check, and build-parity stamps. Use when building a CLI for agents,
-  migrating away from in-process tool servers, designing tool output and error
-  contracts, deciding between text and JSON output for an agent- facing tool,
-  designing a lint or check command that runs ahead of a gate, choosing severity
-  levels for findings, designing output that survives agents trimming it with
-  head or tail, guarding whole-document rewrites against lost updates, or
-  deciding how agents should invoke project actions.
+description: Design a project CLI as the primary tool surface for AI coding
+  agents instead of in-process or MCP tool servers. Use when building or
+  migrating an agent CLI, defining exit-code and text/JSON output contracts,
+  handling complex file payloads or versioned document rewrites, designing
+  preflight checks and finding severities for gated transitions, or wrapping
+  long-running jobs.
 ---
 
 # CLI Tools for Agents
 
-A custom CLI invoked through the shell is the most reliable and portable way to give agents tools. In-process tool servers need a babysitting subsystem (rebinds, keepalives, kill escalation); a CLI has no binding to break — failures become ordinary non-zero exits with readable errors, which agents recover from well. Design the CLI for a calling agent, not a human, and every downstream decision (exit codes, error shape, payload format) falls out of that inversion.
+Build a shell-invoked CLI designed for a calling agent rather than a human or an in-process/MCP tool server. State this agent-first target at the top of the tool's documentation.
 
-## Why a CLI beats in-process tool/MCP servers
+## Why a CLI beats in-process or MCP tool servers
 
-Ranked motivation:
+1. **Reliability.** In-process tool servers require dedicated recovery machinery (pre-turn rebinds, stream-close rebinds, keepalives, kill escalation). A CLI has no persistent binding to break; failures become standard non-zero exits that agents handle reliably, and the recovery subsystem can be deleted.
+2. **Portability.** Works for any agent backend with shell access and for external callers passing flags or environment variables.
+3. **Ergonomics.** Large nested tool schemas force inline JSON arguments where one escaping error ruins the call. `--file <path>` plus a `validate` verb lets agents write, validate, and edit payload files cheaply.
+4. **Token efficiency.** Savings concentrate in large-schema tools. Measure rather than assume: compare tool-schema tokens per fresh context window and invocation failure rates before and after migrating.
 
-1. **Reliability.** In-process tool servers require dedicated recovery machinery: pre-turn rebinds, rebind-on-stream-close, kill escalation, keepalive ticks. A shell-invoked CLI has no persistent binding to break. Failures become ordinary non-zero exits — the failure mode agents handle best — and the entire recovery subsystem becomes deletable.
-2. **Portability.** In-process tool servers exist per-provider. A CLI works for any agent backend that can run shell commands — and for agents running entirely outside your platform, who just pass flags or export env vars themselves.
-3. **Ergonomics.** Huge nested tool schemas force agents to emit entire payloads as inline tool arguments, where one escaping error wastes the whole attempt. `--file payload.json` plus a `validate` verb inverts this: payloads become files the agent writes, validates, and iterates on cheaply.
-4. **Token efficiency.** Real but modest for most tools; the savings concentrate in the big-schema tools. Measure rather than assume — capture tool-schema tokens per fresh context window and invocation failure rates before and after migrating.
+## Output and input contracts
 
-## Design for the calling agent, not a human
+- **Non-interactive always.** No prompts, TTY-detection branches, pagers, or color dependence.
+- **Text by default; `--json` opt-in.** Agents read stdout as text; line-oriented text (`<path>: <message>`, one fact per line, never narrative prose) costs fewer tokens than JSON keys and escaping, and keeps stack traces and diffs readable. Offer a structured `--json` envelope on every command for code consumers (scripts, orchestrators, `jq`), never for the agent's own reading.
+- **Structured file inputs.** Code parses inputs, so pass any payload beyond a few scalars as a schema-validated file (`--file <path>`, `-` for stdin) rather than inline JSON arguments or sprawling flags.
+- **Bounded query output.** Default read output is a constant-size digest with stable zoom-in handles, explicit omission counts, and the exact follow-up command to reveal more; write full dumps past a size threshold to a file (see `query-output-disclosure`).
+- **Pure core.** Structure the CLI core as `(argv, env, injectedClient) → { exitCode, stdout, stderr }` so unit tests run without a server and contract tests run against real route handlers in-process.
+- **Clean contract replacement.** When the only consumers are agents and a skill doc updated in the same change, replace output shapes atomically rather than maintaining dual-shape backwards compatibility.
 
-The primary consumer is a program that must branch on results, not a person reading a terminal. That inverts the human-CLI defaults. State this design target explicitly at the top of the tool's docs.
+## Designing for agent shell habits
 
-- Machine-checkable exit codes over prose.
-- Terse one-line errors over paragraphs; errors to stderr, single actionable line first, detail after.
-- Non-interactive always: no prompts, no TTY-detection surprises, no paging.
-- No color dependence.
-- A structured `--json` envelope available on every command.
+Prose rules against shell habits sit at the bottom of the enforcement ladder (`mechanical-guardrails`). Keep a one-line rule against trimming tool output in always-loaded instructions, but design the CLI so common habits are harmless:
 
-**Format follows the consumer.** "The caller is a program" does not mean "output JSON". The agent *reads* the output, and usually acts on that text rather than on the exit code ([How agents invoke tools](#how-agents-invoke-tools)). An LLM reads compact line-oriented text more cheaply than JSON — structural keys and string-escaping cost tokens without adding meaning, and escaped multi-line content (stack traces, diffs) is harder to read, not easier. So:
+- **Trimming with `head` and `tail`.** Agents read the top of queries and the bottom of writes, checks, and jobs. Put the query digest first; put a single outcome line last on writes, checks, and jobs stating the result, identifier, and any next obligation (`agent-feedback-tiers`). Never bury load-bearing verdicts in the middle.
+- **Pipes masking exit codes.** `cmd | tail` exits with `tail`'s status, hiding failures and breaking `|| fallback`. State every exit-code outcome in the final outcome line as well.
+- **Mangled arguments and zero matches.** Unquoted shell variables can collapse multiple paths into one nonexistent argument. Refuse explicit paths that do not exist (naming them), and fail when explicit targets match nothing (`ai-readable-tool-output`).
+- **Guessed verbs.** Agents call expected commands (`list`, `status`) without checking `--help`. Return unknown-command errors that list the parent's valid children (`progressive-disclosure-tooling`), and log unknown paths as demand signals for missing verbs.
+- **Routing around restrictive wrappers.** If a wrapper hides test counts or rejects name filters, agents bypass it (and its queue or resource caps) to invoke the underlying runner directly. Expose needed counts and filters on the sanctioned command instead of adding prohibitions.
 
-- **Default output is terse, line-oriented text** with stable shapes (`<path>: <message>`, one fact per line) — not narrative prose, which is neither parseable nor skimmable.
-- **`--json` is opt-in, for output that feeds code** — a script, an orchestrator, a `jq` pipeline — never for the agent's own reading.
-- **Input payloads are the mirror image.** They are parsed by code, so they are structured: schema-validated files, not text the server must interpret (see file payloads below).
+## Exit codes, local validation, and structured errors
 
-## Query output is bounded by default
+Publish a stable exit-code taxonomy in `--help` and skill docs so callers can branch on `$?` without regex-parsing prose:
 
-Format discipline alone is not enough: a read verb with perfect line-oriented text can still dump the whole dataset into the agent's context. Volume is part of the output contract.
-
-- A query command's default output is a bounded digest — a summary or outline with stable zoom-in handles — whose size stays roughly constant as the underlying data grows.
-- Deeper detail is pull-based: drill-down verbs and flags, with the full form opt-in only and written to a file past a size threshold.
-- Omission is explicit: output that leaves things out says so and names the exact command that reveals more.
-
-`query-output-disclosure` covers the escalation ladder and the pattern menu (detail levels, field selection, filtering, pagination, aggregation).
-
-## How agents invoke tools
-
-Agents bring shell habits learned on decades of build tools, and the habits outlast any instruction you write: a prose rule is the lowest rung of the enforcement ladder (`mechanical-guardrails`). In one real audit, a supervising agent sent 92 of its 102 invocations of the platform's CLI through `head`, `tail`, `grep` or `sed`, writes included, while the rule against it sat in a reference file the agent never loaded. Design the output so each habit is harmless instead of asking the agent to drop it.
-
-- **Agents trim with `head` and `tail`.** They read the top of query output and the bottom of everything else, because build tools print their verdict last. A read leads with its digest; a write, check or job ends with one outcome line stating the result, its identifier, and the next obligation if there is one. `agent-feedback-tiers` owns the full line order. In the same audit, `check … | tail -4` kept four receipt lines and cut the verdict printed above them, and the agent re-ran three checks to recover it.
-- **A pipe replaces the exit code.** `cmd | tail` exits with `tail`'s status, so a failure the agent never read looks like success, and `cmd | tail -3 || fallback` can never reach its fallback. Keep the exit-code taxonomy for scripts and harnesses, and state every outcome it encodes in the outcome line as well.
-- **The shell mangles arguments.** An unquoted variable holding 45 test paths reached the tool as one argument that named no file; the run matched nothing and reported a pass. Refuse an explicit path that does not exist, naming it. When the caller named its targets, zero matches is a failure, not a clean pass (`ai-readable-tool-output` covers the three states a verdict must separate).
-- **Agents guess verbs.** They call the command they expect to exist — a `list`, a `status` with no id — whether or not it does. An unknown-path error that lists the parent's children recovers the call (`progressive-disclosure-tooling`). The guess is also a demand signal: log unknown command paths and treat a recurring guess as a missing verb.
-- **Agents route around a sanctioned command that withholds what they need.** In the same audit, agents ran the test runner directly, outside a shared queue and its resource caps, to see test counts the quiet wrapper suppressed and to use the test-name filter the wrapper refused. Give the sanctioned command the count line and the filter instead of adding a prohibition.
-
-A one-line rule against trimming tool output still belongs in the always-loaded instructions, where every invocation is in scope (`agent-feedback-tiers` covers why a skill reference does not reach it). Expect it to reduce the habit, not end it.
-
-## The exit-code taxonomy
-
-Reserve a small, stable set of exit codes that answer "whose fault is it?" from `$?` alone, without parsing text. Publish the table in the tool's help and skill doc so recovery advice can key off it.
-
-| Code | Meaning | Whose fault |
+| Code | Meaning | Fault |
 |---|---|---|
-| 0 | Success | — |
-| 1 | Operation failed (the server said no) | The request's semantics |
-| 2 | Usage or validation error (bad flags, invalid payload) | The caller — fixable in one edit |
-| 3 | Connection or auth failure (server unreachable, bad token) | The environment |
-| 4 | Version mismatch (reserved; normally warn-only) | The deployment |
+| `0` | Success | — |
+| `1` | Operation failed (server rejected request semantics) | Request semantics |
+| `2` | Usage or local validation error (bad flags, unreadable file, invalid payload, missing identity) | Caller (fixable in one edit) |
+| `3` | Connection or auth failure (server unreachable, bad token) | Environment (always point to `doctor`) |
+| `4` | Version mismatch (reserved; normally a one-line stderr warning) | Deployment |
 
-Every exit-3 error message points at the `doctor` command (below) — one recovery entry point, not scattered advice.
+- **Validate locally before network round-trips.** Check flag names, file readability, JSON parsing, and identity resolution locally and fail fast with exit `2` before sending a request. Server-side schema validation remains the source of truth for semantics.
+- **Never flatten structured errors into prose.** Return per-field validation issues as `{ error, code?, issues? }`. Render one `  <path>: <message>` line per issue on stderr in text mode (actionable summary line first) and forward `code` and `issues` into the `--json` envelope. Structured detail must never be text-mode-only.
 
-Agents often see the output rather than the exit code; see [How agents invoke tools](#how-agents-invoke-tools).
+## File payloads, `validate`, and versioned rewrites
 
-## Validate locally before any network round-trip
+Pair every complex `create` or `replace` command with a side-effect-free `validate` verb that runs full server-side validation:
 
-Everything checkable without the network — flag names, file readability, payload parse, identity resolution — fails locally and fast with a distinct exit code (2), before any request is sent. The agent gets a stable, reproducible failure fixable in one edit, instead of an ambiguous server error that may be transient.
+1. Agent writes `payload.json` with its file editor.
+2. `yourcli thing validate --file payload.json` returns exit `2` with one issue per line.
+3. Agent edits and re-validates until clean, then runs `yourcli thing create --file payload.json`.
 
-Server-side validation remains the source of truth for semantics: schema validation at the route boundary produces the real errors. The CLI's local checks are the cheap deterministic layer in front of it.
-
-## Structured errors: never flatten computed detail into prose
-
-When the server has computed per-field validation issues, it returns them as structured data (`{ error, code?, issues? }`) — never concatenated into one sentence. The CLI forwards `code` and `issues` into its `--json` envelope rather than flattening them.
-
-- Text mode renders one issue per line (`  <path>: <message>`).
-- JSON mode carries the same detail structurally.
-- **Structured detail is never text-mode-only.** If the text output shows per-field issues, the JSON envelope must carry them as data.
-
-This coexists with text-by-default output: the *data* stays structured internally and in the `--json` envelope, while text mode renders the same issues as keyed lines. Neither mode flattens computed detail into a sentence.
-
-In one real audit, structured issues were being extracted by the error classifier and then dropped at the rendering seam — JSON callers got less information than text callers. Treat that class as a defect.
-
-## File payloads and the validate verb
-
-Any payload beyond a couple of scalars is passed as a file (`--file <path>`, `-` for stdin), not a proliferation of flags. Agents are good at writing JSON with an editor tool and iterating against validation errors; they are bad at long shell quoting.
-
-Pair every complex `create`/`replace` verb with a persist-nothing `validate` verb that runs the full server-side validation without creating anything. This turns a complex command into an author → validate → retry loop with a persistent artifact:
-
-1. Agent writes `payload.json` with its editor tool.
-2. `yourcli thing validate --file payload.json` — exit 2 lists issues one per line.
-3. Agent edits the file and re-validates until clean.
-4. `yourcli thing create --file payload.json`.
-
-### Rewrites carry their base version
-
-When an agent replaces a whole document that something else can also change — a plan, a charter, shared configuration — the write states the version it started from, and the tool refuses a mismatch, naming the current version. Point the agent at the current document by path and version instead of pasting a copy into its instructions: a copy embedded in a queued message is a snapshot from when the message was composed, not from when the agent reads it.
-
-In one real system, two human approvals eleven seconds apart each queued a message embedding the same pre-approval copy of a document. An agent rewriting from the second copy would have produced a version without the first batch of approved changes, and nothing would have refused it. The agent caught the gap only by comparing the embedded copy with the file on disk.
+**Require a base version on whole-document rewrites.** When replacing a shared document (plan, charter, config), require the base version the edit started from and refuse mismatches, naming the current version. Reference documents by path and version rather than pasting copies into queued messages, which go stale across concurrent approvals.
 
 ## Preflight gated transitions
 
-The validate verb above is payload-scoped: one document, checked before one call. Its generalization is state-scoped. Wherever a command **gates a transition** — publish, merge, submit, promote, release, deploy — expose a read-only verb answering *what would refuse this right now*, callable at any point during the work rather than only at the moment of the attempt.
+Wherever a command gates a transition (publish, merge, submit, promote, release, deploy), provide a standalone read-only preflight verb answering *what would refuse this right now*—not just a `--dry-run` flag on the transition itself:
 
-Refusal is the worst possible discovery channel for a rule. The agent has already committed to the transition; the failure arrives as a list of conditions it must reverse-engineer into edits; and a rule it never trips is a rule it never learns. A preflight verb converts all of that into information available beforehand.
+- **Exact parity with the gate.** Run the identical rule set as the transition. An approximate preflight that passes when the gate refuses destroys trust.
+- **Explicit clean verdict.** State that nothing blocks and name the unblocked transition (silence is ambiguous with not running or matching zero targets).
+- **Obligation-named severities.** Name findings by the transition they block (`blocks_publish`, `blocks_merge`, `advisory`) rather than abstract severities (`error`/`warning`/`info`), so the required action is self-evident and one preflight can group findings across multiple gates.
+- **Gate deltas on mutations.** Return `{ blockingBefore, blockingAfter }` in `--json` (and a short line in text mode) on every write affecting gated state so regressions surface at the edit. If a write can land in multiple states (e.g., applied vs. held for human approval), state the resulting state and why.
+- **Both sides of the ledger.** Report carried/satisfied counts alongside remaining counts and the reason for the remainder so pending items are not misread as lost progress:
+  ```
+  approvals: 12 carried, 6 pending (content changed since last approval)
+  ```
+- **Mechanism at the point of refusal.** When a refusal message could invite a false mental model (e.g., citing `<revision-id>` on an element-scoped approval, implying that reopening the document wipes approvals), state the carry-forward mechanism inside the refusal itself (`designed-friction`).
+- **Offline rule catalogue.** Publish all stable, greppable rule IDs and severities in a reference doc so agents author toward rules upfront rather than discovering them one refusal at a time.
 
-Three properties make one trustworthy:
+## Jobs, identity, `doctor`, and build parity
 
-- **Parity with the gate.** The preflight runs the *identical* rule set the transition runs — not a reimplementation, not a subset. A preflight that diverges is worse than none: it grants confidence the gate then contradicts, and agents stop consulting it.
-- **Callable at any time.** A standalone verb, not a flag on the transition. `--dry-run` is the weaker form, because it still frames checking as part of attempting; a separate verb lets the agent poll cheaply mid-work and steer toward a legal state.
-- **An explicit clean verdict.** When nothing would refuse, say so and name the transition now unblocked. Silence is ambiguous between "clean", "did not run", and "matched nothing because the target was wrong".
-
-### Findings name the transition they block
-
-A finding's severity says *which transition it blocks* — `blocks_publish`, `blocks_merge`, `advisory` (for example) — never an abstract intensity. `error`/`warning`/`info` forces the agent to guess the consequence and re-derive it per rule; naming the blocked transition makes the next action readable from the finding alone, and lets one command serve several gates by grouping findings under each.
-
-This is the finding-level counterpart to the obligation-based vocabulary in `agent-feedback-tiers`: define the levels by what the consumer must *do*, never by how bad the thing is.
-
-### Mutations report their effect on the gate
-
-A write that changes gated state returns the blocking-finding count before and after it — `{ blockingBefore, blockingAfter }` in the envelope, a short line in text mode. The agent gets a closed feedback loop on every edit instead of a mutate → re-check → compare cycle, and an edit that silently makes things worse surfaces at the edit rather than at the transition.
-
-A write that can land in more than one state — applied, or held for a human's approval — names the state it reached and why. In one real system, a document write that its instructions promised would apply was held for approval instead; the receipt said only "pending approval", and the agent gave the human a wrong cause.
-
-### Report both sides of the ledger, not just the deficit
-
-A gate that reports only what remains outstanding — `11 pending of 18` — is read as **7 lost**, not 7 banked. Where progress accumulates across attempts, report the satisfied count and the reason for the remainder alongside the outstanding one:
-
-```
-approvals: 12 carried, 6 pending (content changed since last approval)
-```
-
-Deficit-only output systematically under-reports progress to an agent, and an agent that believes it is losing ground behaves differently from one that knows it is nearly done.
-
-### Accurate output can still teach a false mechanism
-
-Output is where an agent builds its model of your system, and a message can be entirely true while foregrounding the wrong thing. In one real design, a gate refusal read *"item R5 needs a valid approval for `<revision-id>`"* — correct, but naming the revision an approval was bound to taught the agent that approvals were per-revision and destroyed by reopening the document. They were per-element and carried forward. The agent operated on the inverted model for an entire session and avoided a cheap, sanctioned action because it had mis-priced it.
-
-State the mechanism where the wrong inference is invited, not only where it is catalogued — the agent is reading the refusal at the moment it forms the belief, not your reference doc. `designed-friction` covers this failure class, mis-priced sanctioned actions, and rationale placement in refusals.
-
-### Publish the rule catalogue offline
-
-Ship the full set of rule identifiers with their severities as a readable document, not only as findings emitted when tripped. An agent that can enumerate the rules authors toward them; an agent that can only meet them by violation authors blind and learns the rule space one refusal at a time. Rule identifiers are stable and greppable, so a finding, the catalogue entry, and any prose about it all name the same string.
-
-## Long operations are job-shaped
-
-Operations that outlive a comfortable shell-tool timeout are server-side jobs:
-
-- The CLI offers `--wait [--timeout <dur>]` long-polling and a separate `status <id>` verb.
-- If the agent's shell call is killed mid-wait, the work continues server-side; `status <id>` resumes observation.
-- Never fire-and-forget: flags that detach and hide failures make errors invisible to the agent.
-- If the agent harness has a shell timeout ceiling, raise it via the injected environment so `--wait` flows aren't truncated by a default.
-
-## Identity by contract
-
-Give the agent's environment its ambient identity via injected env vars, with a documented resolution order: **explicit flags > env vars > file**.
-
-- Missing identity fails with a usage error (exit 2) naming the exact missing variable — not a generic "not configured".
-- Any operation targeting a *different* scope than the ambient identity (another project, session, or workspace) requires explicit flags. The tool never silently acts on a neighbor.
-- The flags-over-env order keeps the CLI usable by agents outside your platform: they pass flags or export the env themselves.
-
-**Do not name the binary something already on PATH.** If the environment contract prepends your bin directory to PATH, a name collision silently shadows the existing tool for every agent session (a two-letter name collided with the system C compiler in one real design; the longer `-ctl` style name avoided it).
-
-## The doctor self-check
-
-Ship one self-diagnostic command — `doctor` — that reports connectivity, auth, identity resolution, and version parity in one pass. It is the single recovery entry point:
-
-- Every connection-class error (exit 3) points at it by name.
-- It is the acceptance test for the tool's installation: an agent in a fresh session runs `doctor` and gets a green handshake.
-
-## Version and build parity
-
-When the CLI talks to a long-running service and agents work in per-branch worktrees, a client built from worktree code silently drifts from the service's API. Make the *service* the single source of the binary:
-
-- The service publishes the client binary at startup (atomic write: temp file + rename).
-- A build stamp (git SHA + build time) is compiled into both server and CLI; every request carries it.
-- Mismatch produces a one-line stderr warning (the CLI proceeds — mismatch should be transient across a restart); `doctor` surfaces it explicitly.
-
-## Keep the core a pure function
-
-Structure the CLI core as a pure function of `(argv, env, injectedClient) → { exitCode, stdout, stderr }`, with the HTTP client injected. Behavior is then testable without a server; a thin contract-test layer runs the real CLI against real route handlers in-process.
-
-## Break contracts cleanly
-
-When the only consumers of an output shape are agents plus a skill doc updated in the same change, prefer clean replacement over dual-shape back-compat. A dual shape doubles the surface and teaches agents that two formats exist. Update the output contract and its skill doc atomically; rollback is a revert.
-
-## Anti-patterns
-
-- **Prose-only errors.** An error the agent must parse with regex to branch on is a defect; give it an exit code and a `code` field.
-- **JSON-by-default output.** Defaulting the envelope on because "the caller is a program" — the agent reads text; JSON is for output that feeds code.
-- **Dump-by-default query output.** A read verb that returns every record in full; the default is a bounded digest with drill-down, not the dataset.
-- **Inline mega-payloads.** Requiring a large JSON document as a quoted shell argument; one escaping error wastes the attempt.
-- **Fire-and-forget flags.** Detached operations whose failures nothing observes.
-- **Refusal as the discovery channel.** A gated transition with no way to ask what would refuse it beforehand; the agent learns the rules by tripping them, one attempt at a time.
-- **A preflight that diverges from its gate.** A check that approximates the real rules rather than running them — the one failure mode that makes a preflight worse than not shipping one.
-- **Abstract severity levels on findings.** `error`/`warning`/`info` where the consequence differs per rule; name the transition each finding blocks instead.
-- **Silent scope widening.** Falling back to a different project/session than the ambient identity without explicit flags.
-- **Interactive fallbacks.** Prompting on a TTY "for convenience" — agents hang on prompts.
-- **Dual-shape output for back-compat.** When consumers are agents plus a doc you control, replace cleanly.
-- **Ambiguous network errors for local mistakes.** A bad flag should never require a network round-trip to discover.
-- **Load-bearing lines in the middle.** A write's verdict printed first, where `| tail` cuts it, or a query's digest buried under detail, where `| head` misses it.
-- **A pass over explicit targets that matched nothing.** The caller named what to check; zero matches means the names were wrong.
-- **Blind whole-document rewrites.** Accepting a replacement with no base version, or handing the agent a pasted snapshot to edit.
+- **Job-shaped long operations.** For operations that can exceed shell timeouts, expose `--wait [--timeout <dur>]` alongside `status <id>` so observation can resume if the shell call is killed. Never provide fire-and-forget flags that hide failures; raise harness timeout ceilings via injected env vars when needed.
+- **Identity resolution (`explicit flags > env vars > file`).** Inject ambient identity via environment variables. Fail missing identity with exit `2` naming the exact missing variable. Require explicit flags to target any project, session, or workspace outside the ambient identity (never silently widen scope). Name the binary (e.g., `*-ctl`) so prepending its directory to `PATH` never shadows system tools like `cc`.
+- **`doctor` self-check.** Ship a single `doctor` command checking connectivity, auth, identity resolution, and build parity. Reference `doctor` in every exit-`3` error and use it as the session readiness check.
+- **Service-published binary and build parity.** When agents run in per-branch worktrees against a long-running service, have the service write the CLI binary atomically (`tmp` + `rename`) at startup. Compile a build stamp (git SHA + build time) into both, send it on every request, emit a one-line stderr warning on mismatch without blocking execution, and report mismatches in `doctor`.
 
 ## Related skills
 
-- `progressive-disclosure-tooling` — help as a navigable disclosure graph derived from one typed registry
-- `query-output-disclosure` — bounded digest defaults, zoom-in handles, and the disclosure pattern menu for query output
-- `agent-feedback-tiers` — hint/reminder/instruction output tiers and the reminder admission rule
-- `ai-readable-tool-output` — configure linters, compilers, and test runners for low-noise agent consumption
-- `agent-offloading` — offload deterministic work from agents onto code; reserve agents for judgment
-- `designed-friction` — refusal rationale, ledger framing, and the designed-versus-defect taxonomy for agent-facing tools
-- `mechanical-guardrails` — the enforcement ladder, and why a prose rule is the weakest way to change an agent habit
+- `progressive-disclosure-tooling` — when designing `--help` navigation and deriving flags/parsers from one typed registry
+- `query-output-disclosure` — when bounding read/query command output with digests, handles, and drill-down flags
+- `agent-feedback-tiers` — when ordering output lines or adding `hint`, `reminders`, and `instruction` tiers
+- `ai-readable-tool-output` — when configuring linters, typecheckers, test runners, and hooks for low-noise output
+- `agent-offloading` — when deciding what belongs in deterministic CLI/orchestrator code versus agent prompts
+- `designed-friction` — when writing refusal rationale and classifying designed versus incidental friction
+- `mechanical-guardrails` — when converting prose tool conventions into structural checks

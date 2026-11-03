@@ -29,6 +29,7 @@
     "dist"
   ],
   "scripts": {
+    "plugin:sync": "bash scripts/sync-plugin.sh",
     "typecheck": "./scripts/validate/typecheck.sh",
     "build": "./scripts/validate/build.sh",
     "prepack": "node scripts/prepack.mjs"
