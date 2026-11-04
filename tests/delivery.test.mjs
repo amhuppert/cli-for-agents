@@ -110,7 +110,7 @@ test("compact text preserves apostrophe-heavy argv when ordinary shell expansion
 test("text success retains applied effect and receipt even when custom primary omits them", async () => {
   const result = await deliver(await response({ operation: { effect: "applied", recovery: receipt }, text: "Saved" }), options("text"));
   bounded(result, "text", 0);
-  assert.match(result.stdout, /\noutcome: success; effect: applied; recovery: .*saved-123.*\n$/);
+  assert.match(result.stdout, /\noutcome: success; effect: applied; recovery: receipt saved-123\n$/);
 });
 
 import { kernelErrors, protocolLimits } from "../dist/results.js";
@@ -536,7 +536,7 @@ for (const format of ["json", "text"]) {
 // Successful automatic spill is delivery metadata, not a diagnostic issue.
 const spillHost = () => createTestHost({ directories: ["/artifacts"] });
 const spillArtifacts = () => captureArtifactPolicy({ directory: "/artifacts", forbiddenRoots: [] });
-const notice = spill => `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.`;
+const notice = spill => `notice: inline ${spill.format === "json" ? "JSON" : "text"} output of ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response saved as JSON in the artifact.`;
 for (const format of ["json", "text"]) test(`${format} automatic spill records the attempted inline size and keeps success issue-free`, async () => {
   const host = spillHost();
   const assembled = await response({ data: { rows: "😀\u2028".repeat(3000) }, text: "é😀".repeat(3000) });
@@ -585,7 +585,7 @@ test("a failed primary response spills with the same metadata and no invented ou
       assert.equal(wire.payload.spill.format, "json");
       assert.deepEqual(wire.recovery, receipt);
     } else {
-      assert.match(result.stderr, /^notice: response \d+ bytes exceeds the 8192-byte budget; full response in artifact\.$/m);
+      assert.match(result.stderr, /^notice: inline text output of \d+ bytes exceeds the 8192-byte budget; full response saved as JSON in the artifact\.$/m);
       assert.doesNotMatch(result.stderr, /KERNEL_OUTPUT/);
     }
   }
@@ -619,6 +619,6 @@ for (const format of ["json", "text"]) test(`${format} minimum-budget spill rece
     assert.equal(wire.payload.spill.maxBytes, 8192);
   } else {
     assert.ok(result.stdout.includes(required.text));
-    assert.match(result.stdout, /^notice: response \d+ bytes exceeds the 8192-byte budget; full response in artifact\.$/m);
+    assert.match(result.stdout, /^notice: inline text output of \d+ bytes exceeds the 8192-byte budget; full response saved as JSON in the artifact\.$/m);
   }
 });

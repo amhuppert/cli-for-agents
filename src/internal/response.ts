@@ -3,7 +3,7 @@ import type { EvaluatedGuidance, HandlerGuidance, FinalGuidance, GuidanceConflic
 import { hint, instruction } from "../guidance/index.js";
 import type { AnyBinaryArtifactRequest } from "../disclosure.js";
 import type { Invocation } from "../commands.js";
-import type { AnyEnvelope, Issue, SecondaryFailure, ResponseError } from "../results.js";
+import type { AnyEnvelope, CompactRecovery, Issue, SecondaryFailure, ResponseError } from "../results.js";
 import { decodeWireEnvelope, kernelError, protocolLimits } from "../results.js";
 import type { JsonValue } from "../values.js";
 import type { Brand } from "./brand.js";
@@ -245,11 +245,19 @@ function outcomeLine(envelope: AnyEnvelope): string {
   return [`outcome: ${envelope.ok ? "success" : "failed"}`,
     ...(!envelope.ok ? [`exit: ${envelope.error.exitClass}`, `code: ${envelope.error.code}`] : []),
     `effect: ${envelope.effect}`,
-    ...(envelope.recovery ? [`recovery: ${compactText(envelope.recovery)}`] : []),
+    ...(envelope.recovery ? [`recovery: ${recoveryText(envelope.recovery)}`] : []),
     ...(envelope.outcome ? [`state: ${lineText(envelope.outcome.state)}`,
       ...(envelope.outcome.id ? [`id: ${lineText(envelope.outcome.id)}`] : []),
       ...(envelope.outcome.reason ? [`reason: ${lineText(envelope.outcome.reason)}`] : [])] : []),
   ].join("; ");
+}
+
+/** The identifiers a reader follows; JSON keeps the complete recovery facts, including any payload hash. */
+function recoveryText(recovery: CompactRecovery): string {
+  switch (recovery.kind) {
+    case "reported": return lineText(recovery.references.map(reference => `${reference.kind} ${reference.id}`).join(", "));
+    case "unknown_acknowledgment": return lineText(`unknown_acknowledgment ${recovery.commandPath} (${recovery.advice})`);
+  }
 }
 
 function assertPrimaryText(value: unknown): asserts value is string {

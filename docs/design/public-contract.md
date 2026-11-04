@@ -168,9 +168,10 @@ returns `not_applied`. Build recovery references before dispatching a write.
 centrally receive the registered read doctor; a continuation supplements it.
 Exits are 0 success, 1 failure, 2 usage/local input, 3 connection/authentication and
 4 version mismatch. A local input refusal names its stage in `message` (read,
-UTF-8, JSON, file value or thrown decoder) and, in `why`, the flag, argument or
+byte limit, UTF-8, JSON, file value or thrown decoder) and, in `why`, the flag, argument or
 payload, its quoted path or stdin, and the cause, including the JSON parser's line and
-column when available. Long paths are elided, secret paths are omitted, and file contents
+column when available, and for a file value the declared bound and the text's measured
+length. Long paths are elided, secret paths are omitted, and file contents
 and exception text are never echoed; returned schema issues keep their paths in `issues`.
 Text omits the `why:` line when it exactly equals the message; JSON keeps
 `error.why` on every error. Later rendering/guidance/delivery failures preserve an existing
@@ -197,8 +198,9 @@ Text queries lead with an authored outcome digest when present, then primary tex
 issues, reminders and hint. Other successful commands put primary text and issues
 first, followed by reminders, hint, and one `outcome:` line. Failures keep their
 actionable `error:` line first and also end with an outcome. The final outcome names
-success/failure, the failure exit class/code, effect, recovery identifiers, and any
-authored domain state. `instruction:` is always last when present. A generic
+success/failure, the failure exit class/code, effect, recovery identifiers (each
+reported reference as `<kind> <id>`, or an unknown acknowledgment's command and advice),
+and any authored domain state. `instruction:` is always last when present. A generic
 success/failure outcome is derived from existing envelope facts when the handler
 does not supply domain state; no domain identifier is invented. JSON carries the
 same facts in `ok`, `error`, `effect`, `recovery`, and optional `outcome`.
@@ -255,8 +257,9 @@ argv/JSON to retain reference token boundaries within the bound.
 A successful automatic spill is normal delivery, not a diagnostic. The artifact
 payload carries `spill: { format, inlineBytes, maxBytes }`: the attempted complete
 serialized stdout plus stderr in the requested format, and the run budget. Text
-prints `notice: response <inlineBytes> bytes exceeds the <maxBytes>-byte budget; full
-response in artifact.` followed by the `artifact:` manifest line. Success keeps
+prints `notice: inline <text|JSON> output of <inlineBytes> bytes exceeds the
+<maxBytes>-byte budget; full response saved as JSON in the artifact.` followed by the
+`artifact:` manifest line, whose `bytes` is the size of that compact JSON file. Success keeps
 `ok`, effect and exit code and gains no `KERNEL_OUTPUT` issue; legitimate issues
 stay while they fit, and the complete response artifact holds any that must be
 dropped. A failed primary response spills the same way and keeps its classification.

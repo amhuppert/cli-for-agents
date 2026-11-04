@@ -2,7 +2,7 @@ import { recordTestEvent } from "./test-observation.js";
 import type { ParsedInvocation } from "./registry.js";
 import type { InputFileSource, ResolvedRunRequest } from "../runtime/index.js";
 import type { CheckedInput, InputSource } from "./input-model.js";
-import { scalar } from "./input-model.js";
+import { expectedValue, scalar } from "./input-model.js";
 import type { Issue, KernelCode } from "../results.js";
 import { kernelError, protocolLimits } from "../results.js";
 import { commandData } from "./declarations.js";
@@ -28,8 +28,7 @@ export type LocalResolution = { readonly ok: true; readonly input: LocalInput }
 class InputFailure extends TypeError {
   constructor(readonly diagnostic: InputDiagnostic) { super(diagnostic.why); }
 }
-function readCause(error: unknown, maxBytes: number): string {
-  if (error instanceof InputOverflowError) return `input exceeds the ${maxBytes}-byte limit.`;
+function readCause(error: unknown): string {
   if (hasCode(error, "ENOENT")) return "file does not exist.";
   if (hasCode(error, "EISDIR")) return "path is a directory, not a file.";
   if (hasCode(error, "ENOTDIR")) return "a parent path component is not a directory.";
@@ -90,10 +89,13 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
       try {
         data = await (source.path === "-" ? request.host.files.readStdin(source.maxBytes, request.signal)
           : request.host.files.read(source.path, source.maxBytes, request.signal));
-      } catch (error) { throw fail(source, "Input file could not be read.", `could not be read: ${readCause(error, source.maxBytes)}`); }
+      } catch (error) {
+        if (error instanceof InputOverflowError) throw fail(source, "Input file exceeds its byte limit.", `exceeds the ${source.maxBytes}-byte limit.`);
+        throw fail(source, "Input file could not be read.", `could not be read: ${readCause(error)}`);
+      }
       request.signal.throwIfAborted();
       if (!(data instanceof Uint8Array)) throw new TypeError("Invalid bounded read.");
-      if (data.byteLength > source.maxBytes) throw fail(source, "Input file could not be read.", `could not be read: ${readCause(new InputOverflowError(), source.maxBytes)}`);
+      if (data.byteLength > source.maxBytes) throw fail(source, "Input file exceeds its byte limit.", `exceeds the ${source.maxBytes}-byte limit.`);
       let text: string;
       try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data); }
       catch { throw fail(source, "Input is not valid UTF-8.", "is not valid UTF-8 text."); }
@@ -111,7 +113,11 @@ export async function resolveLocalInput<Contexts, Code extends string, G extends
         let value: ReturnType<typeof scalar> | string = text;
         if (definition.value.kind !== "file") {
           try { value = scalar(definition.value, text); }
-          catch { throw fail(source, "Input file value is invalid.", `contents are not a valid value for --${source.name}.`); }
+          catch {
+            // Derived file sources are non-secret strings, so the measured length discloses no secret.
+            const measured = definition.value.kind === "string" ? `; its text has length ${text.length}` : "";
+            throw fail(source, "Input file value is invalid.", `contents are not a valid value for --${source.name}: expected ${expectedValue(definition.value)}${measured}.`);
+          }
         }
         (source.kind === "global" ? globals : flags)[source.name] = value;
       }

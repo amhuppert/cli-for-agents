@@ -238,7 +238,8 @@ export async function deliver(response: AssembledResponse, options: {
 function projectCompact(response: AssembledResponse, envelope: AnyEnvelope, manifest: ArtifactManifest | undefined,
   format: "text" | "json", budget: Bytes): ReturnType<typeof renderResponse> {
   const spill = envelope.payload?.kind === "artifact" ? envelope.payload.spill : undefined;
-  const notice = spill ? `notice: response ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response in artifact.\n`
+  // inlineBytes measures the requested format's rendering; the artifact is compact JSON, so their sizes differ.
+  const notice = spill ? `notice: inline ${spill.format === "json" ? "JSON" : "text"} output of ${spill.inlineBytes} bytes exceeds the ${spill.maxBytes}-byte budget; full response saved as JSON in the artifact.\n`
     : manifest?.reason === "diagnostics_exceeded" ? "notice: diagnostic detail exceeds the inline limit; full response in artifact.\n" : "";
   const compact = { ...response, envelope, primaryText: manifest ? `${notice}artifact: ${JSON.stringify(manifest)}` : "" };
   let output = renderResponse(compact, format);

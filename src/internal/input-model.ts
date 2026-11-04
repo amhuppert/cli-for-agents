@@ -43,19 +43,22 @@ export function scalar(value: HelpFlag["value"], input: unknown): string | numbe
   }
   throw new TypeError("Input does not match its declared value kind or bounds.");
 }
+/** What a declared value accepts, from the declaration alone. */
+export function expectedValue(value: HelpFlag["value"]): string {
+  switch (value.kind) {
+    case "integer": return `a safe integer${value.min === undefined ? "" : ` >= ${value.min}`}${value.max === undefined ? "" : ` <= ${value.max}`}`;
+    case "string": return `text${value.minLength === undefined ? "" : ` with length >= ${value.minLength}`}${value.maxLength === undefined ? "" : ` with length <= ${value.maxLength}`}`;
+    case "enum": return `one of ${value.values.map(item => JSON.stringify(item)).join(", ")}`;
+    case "pattern": return value.description;
+    case "boolean": return "true or false";
+    case "url": return "an absolute URL";
+    case "id": return `a valid ${value.domain} identifier`;
+    case "file": case "output-path": return "a nonempty file path";
+  }
+}
 /** Diagnostics describe declarations, never caller values (which may be secrets). */
 export function invalidInput(value: HelpFlag["value"], label: string, path: readonly string[]): InputValidationError {
-  let expected: string;
-  switch (value.kind) {
-    case "integer": expected = `a safe integer${value.min === undefined ? "" : ` >= ${value.min}`}${value.max === undefined ? "" : ` <= ${value.max}`}`; break;
-    case "string": expected = `text${value.minLength === undefined ? "" : ` with length >= ${value.minLength}`}${value.maxLength === undefined ? "" : ` with length <= ${value.maxLength}`}`; break;
-    case "enum": expected = `one of ${value.values.map(item => JSON.stringify(item)).join(", ")}`; break;
-    case "pattern": expected = value.description; break;
-    case "boolean": expected = "true or false"; break;
-    case "url": expected = "an absolute URL"; break;
-    case "id": expected = `a valid ${value.domain} identifier`; break;
-    case "file": case "output-path": expected = "a nonempty file path"; break;
-  }
+  const expected = expectedValue(value);
   const fits = (text: string): boolean => new TextEncoder().encode(JSON.stringify(text)).byteLength <= protocolLimits.diagnosticSummary;
   let message = `Invalid ${label}; expected ${expected}.`;
   if (!fits(message)) message = `Invalid ${label}; see --help for the accepted ${value.kind} values.`;

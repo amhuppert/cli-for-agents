@@ -57,7 +57,7 @@ test("argument and derived flag files identify their own input", async () => {
   assert.equal(flag.wire.error.why, 'Flag --body-file "gone.txt" could not be read: file does not exist.');
   const value = await x.run(["--body-file", "short.txt", "--file", "payload.json"], { files: { "short.txt": "x" } });
   assert.equal(value.wire.error.message, "Input file value is invalid.");
-  assert.equal(value.wire.error.why, 'Flag --body-file "short.txt" contents are not a valid value for --body.');
+  assert.equal(value.wire.error.why, 'Flag --body-file "short.txt" contents are not a valid value for --body: expected text with length >= 3; its text has length 1.');
 });
 
 test("secret file inputs name the flag without echoing its path", async () => {
@@ -72,7 +72,12 @@ test("byte limit overflow and invalid UTF-8 are distinguishable read stages", as
   const x = fixture();
   const large = await x.run(["--file", "big.json"], { files: { "big.json": `"${"x".repeat(80)}"` } });
   assertRefusal(large, x.events);
-  assert.equal(large.wire.error.why, 'Payload --file "big.json" could not be read: input exceeds the 64-byte limit.');
+  assert.equal(large.wire.error.message, "Input file exceeds its byte limit.");
+  assert.equal(large.wire.error.why, 'Payload --file "big.json" exceeds the 64-byte limit.');
+  const largeFlag = await x.run(["--body-file", "big.txt", "--file", "payload.json"], { files: { "big.txt": "x".repeat(80) } });
+  assertRefusal(largeFlag, x.events);
+  assert.equal(largeFlag.wire.error.message, "Input file exceeds its byte limit.");
+  assert.equal(largeFlag.wire.error.why, 'Flag --body-file "big.txt" exceeds the 64-byte limit.');
   const binary = await x.run(["--file", "binary.json"], { files: { "binary.json": new Uint8Array([0x7b, 0xff, 0x7d]) } });
   assertRefusal(binary, x.events);
   assert.equal(binary.wire.error.message, "Input is not valid UTF-8.");

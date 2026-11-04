@@ -124,7 +124,7 @@ A successful spill no longer carries the issue
 prints one kernel line instead:
 
 ```text
-notice: response 40213 bytes exceeds the 32768-byte budget; full response in artifact.
+notice: inline text output of 40213 bytes exceeds the 32768-byte budget; full response saved as JSON in the artifact.
 artifact: {"path": ...}
 ```
 

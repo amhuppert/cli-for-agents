@@ -198,7 +198,7 @@ test("domain failure stays primary under renderer failure and routes coherently 
   assert.match(text.stderr, /^error: OFFLINE: Disconnected\nwhy: The service is unavailable\.\n/);
   assert.ok(text.stderr.indexOf("doctor: tool doctor") < text.stderr.indexOf("continuation: tool inspect"));
   assert.ok(text.stderr.indexOf("issue: NETWORK") < text.stderr.indexOf("reminder:"));
-  assert.match(text.stderr, /reminder: Keep lease valid\.\noutcome: failed; exit: connection; code: OFFLINE; effect: unknown;.*\ninstruction: Stop now\.\n$/);
+  assert.match(text.stderr, /reminder: Keep lease valid\.\noutcome: failed; exit: connection; code: OFFLINE; effect: unknown; recovery: unknown_acknowledgment inspect \(inspect_before_retry\)\ninstruction: Stop now\.\n$/);
   const json = renderResponse(response, "json");
   assert.equal(json.stderr, "");
   assert.equal(json.exitCode, 3);
